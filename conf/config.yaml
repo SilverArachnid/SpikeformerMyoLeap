@@ -1,0 +1,12 @@
+# Configuration for Leap-Myo Data Collection Pipeline
+
+# Data Collection Parameters
+episode_duration: 5.0 # Duration to record per episode (seconds)
+max_episodes: 20 # Maximum number of episodes to record
+subject_id: "user_1" # Subject or session identifier
+pose_name: "test_pose" # Name of the pose/activity being recorded
+save_dir: "datasets" # Root directory where episodes are saved
+
+# Visualization
+visualize: true # True to spawn a Rerun viewer during data collection
+web_viewer: false # If true, serve Rerun on a web port instead of a native window (fixes Linux display issues)
