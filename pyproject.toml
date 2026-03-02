@@ -1,0 +1,17 @@
+[project]
+name = "spikeformer-myo-leap"
+version = "0.1.0"
+description = "V2 Data Collection for SpikeFormerMyo via Leap Motion and Myo Armband"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyomyo",
+    "pyserial",
+    "numpy",
+    "pandas",
+    "rerun-sdk",
+    "hydra-core"
+]
+
+[tool.setuptools]
+py-modules = []
