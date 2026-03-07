@@ -42,3 +42,51 @@ The repository now successfully offers:
 1. A reproducible environment builder (`setup_env.sh`).
 2. Standalone streaming tests (`visualize_myo.py --web` and `visualize_leap.py --web`).
 3. A robust, trigger-based data collector generating exactly formatted `pose.csv` and `emg.csv` matching the downstream Spikeformer model requirements.
+
+---
+
+## 🔭 Future Steps
+
+The repository is currently an acquisition-first rewrite of SpikeFormerMyo, not yet a full end-to-end port of the older project. The current codebase cleanly handles:
+- Leap Motion hand tracking acquisition
+- Myo EMG acquisition
+- synchronized episode recording
+- live visualization through Rerun
+
+What is still missing, compared with the older `/home/pranav/pranav/SpikeFormerMyo` repository, is the full modeling and evaluation stack:
+- dataset loading and resampling utilities
+- pose normalization and preprocessing helpers
+- Spikeformer / spiking CNN / evaluation scripts
+- realtime inference playback tools
+- robot / PyBullet control experiments
+
+### Key Compatibility Finding
+The new collector already writes `pose.csv` using the same 21 landmark naming scheme as the older project, and it records full `X/Y/Z` coordinates for all 21 joints. However, the older training code only consumes `X/Y` coordinates, even though the old raw `pose.csv` files also contained `Z`.
+
+This means the current collector is broadly file-format compatible with the old project, but the learning stack is not yet Leap-native. A deliberate modeling decision is still required:
+1. Keep the older 2D target contract and ignore `Z` for now.
+2. Upgrade the full data/model pipeline to predict all 63 pose values (`21 x 3`).
+3. Replace raw Cartesian targets with a more useful representation such as joint angles or wrist-relative kinematic features.
+
+### Current Risks / Known Gaps
+- Episodes are currently saved as `datasets/<pose_name>_epN`, so repeated runs with the same pose name can overwrite previous data.
+- `subject_id` is stored in metadata but is not yet used in the directory structure.
+- The new `meta.json` is lighter than the older project metadata and does not currently store explicit start/end timestamps.
+- The `datasets/` directory is still empty in this repository, so the new collector has not yet been validated against a real accumulated dataset inside this repo.
+
+### Recommended Implementation Order
+To rebuild this project neatly around Leap, the next steps should follow this order:
+1. Fix current collector and data-management bugs first.
+2. Define the final dataset contract clearly:
+   - folder naming
+   - metadata schema
+   - overwrite protection
+   - target representation (`XY`, `XYZ`, or angles)
+3. Port the old shared pipeline pieces into this repository:
+   - `dataset.py`
+   - `utils.py`
+   - `models.py`
+   - `train.py`
+   - `evaluate.py`
+4. Refactor them so they work cleanly with Leap-based pose targets.
+5. Rebuild realtime inference and downstream control/visualization only after the training contract is stable.

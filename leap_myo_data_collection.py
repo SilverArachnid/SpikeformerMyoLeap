@@ -16,6 +16,8 @@ import rerun as rr
 import pyomyo
 import leap
 
+from rerun_viewer import init_rerun
+
 def is_key_pressed():
     """Non-blocking keyboard check for Linux."""
     import select
@@ -80,11 +82,12 @@ class LeapRerunListener(leap.Listener):
 def main(cfg: DictConfig):
     # Setup optional Rerun visualization
     if cfg.visualize:
-        rr.init("SpikeFormerMyo_DataCollection")
-        if getattr(cfg, "web_viewer", False):
-            rr.serve_web_viewer()
-        else:
-            rr.spawn()
+        use_web = init_rerun(
+            "SpikeFormerMyo_DataCollection",
+            force_web=getattr(cfg, "web_viewer", False),
+            force_native=False,
+        )
+        print(f"Using Rerun {'web' if use_web else 'native'} viewer.")
 
     # Output directory
     os.makedirs(cfg.save_dir, exist_ok=True)

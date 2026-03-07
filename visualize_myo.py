@@ -3,17 +3,19 @@ import argparse
 import pyomyo
 import rerun as rr
 
+from rerun_viewer import init_rerun
+
 def main():
     parser = argparse.ArgumentParser(description="Live visualize Myo Armband 8-channel EMG data using Rerun.")
-    parser.add_argument("--web", action="store_true", help="Launch the Rerun web viewer instead of the native viewer to avoid Linux graphics issues.")
+    parser.add_argument("--web", action="store_true", help="Force the Rerun web viewer.")
+    parser.add_argument("--native", action="store_true", help="Force the native Rerun viewer.")
     args = parser.parse_args()
 
-    # Initialize Rerun
-    rr.init("SpikeFormerMyo_VisualizeMyo")
-    if args.web:
-        rr.serve_web_viewer()
+    use_web = init_rerun("SpikeFormerMyo_VisualizeMyo", force_web=args.web, force_native=args.native)
+    if use_web:
+        print("Using Rerun web viewer.")
     else:
-        rr.spawn()
+        print("Using native Rerun viewer.")
 
     # Initialize Myo
     print("Connecting to Myo...")
