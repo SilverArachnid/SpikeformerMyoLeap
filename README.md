@@ -6,6 +6,7 @@ Version 2 of the SpikeformerMyo project. This repository contains a standalone, 
 - **Standalone Environment**: Uses `uv` and `pyproject.toml` to manage dependencies seamlessly, including local CFFI compilation for the Leap SDK.
 - **Hydra Configuration**: Easily adjust recording durations, subjects, and parameters via `conf/config.yaml`.
 - **Professional Local Visualizers**: Dark-mode desktop dashboards for Leap-only, Myo-only, and full collection monitoring.
+- **Desktop Collection UI**: A `PySide6` collection console for subject/session/pose setup, episode control, and session-aware saving.
 - **Optional Rerun Path**: Rerun remains available as an optional backend, but the default workflow now avoids its Linux GPU issues.
 
 ## Quickstart
@@ -26,7 +27,19 @@ Both commands now default to a polished local dark-mode viewer. If you still wan
 uv run visualize_leap.py --viewer rerun
 uv run visualize_myo.py --viewer rerun
 ```
-4. Start data collection:
+4. Start the GUI-based data collection app:
+```bash
+uv run collection_gui.py
+```
+This is now the primary collection workflow. It provides:
+- subject / session / pose configuration
+- episode duration and episodes-per-session controls
+- connect / disconnect hardware buttons
+- one-click episode recording
+- session-aware save paths
+- the existing local dark-mode visualization dashboard in a separate window
+
+5. Legacy terminal collector (fallback only):
 ```bash
 uv run leap_myo_data_collection.py
 ```
