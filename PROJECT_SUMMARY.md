@@ -74,6 +74,16 @@ This means the current collector is broadly file-format compatible with the old 
 - The new `meta.json` is lighter than the older project metadata and does not currently store explicit start/end timestamps.
 - The `datasets/` directory is still empty in this repository, so the new collector has not yet been validated against a real accumulated dataset inside this repo.
 
+### Visualization Progress
+The project has now moved away from relying on Rerun as the primary visualization path on Linux. In practice, native Rerun rendering was not reliable on the target machine due to GPU / driver limitations, and the browser workflow was not ideal for local collection sessions.
+
+To address this, the repository now includes a shared local visualization layer that provides:
+- a dark-mode desktop Leap hand visualizer
+- a dark-mode desktop Myo EMG visualizer
+- a unified local collection dashboard showing both the 3D hand pose and 8-channel EMG traces alongside session state
+
+Rerun is still kept as an optional backend, but the intended default workflow is now the local professional dashboard path.
+
 ### Recommended Implementation Order
 To rebuild this project neatly around Leap, the next steps should follow this order:
 1. Fix current collector and data-management bugs first.
