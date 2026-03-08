@@ -41,7 +41,7 @@ When attempting to launch the standalone visualizers (`visualize_leap.py` and `v
 The repository now successfully offers:
 1. A reproducible environment builder (`setup_env.sh`).
 2. Standalone streaming tests (`visualize_myo.py --web` and `visualize_leap.py --web`).
-3. A robust, trigger-based data collector generating exactly formatted `pose.csv` and `emg.csv` matching the downstream Spikeformer model requirements.
+3. A robust, trigger-based data collector generating exactly formatted `pose.csv` and `emg.csv` matching the downstream Spikeformer model requirements.\
 
 ---
 
@@ -73,6 +73,26 @@ This means the current collector is broadly file-format compatible with the old 
 - `subject_id` is stored in metadata but is not yet used in the directory structure.
 - The new `meta.json` is lighter than the older project metadata and does not currently store explicit start/end timestamps.
 - The `datasets/` directory is still empty in this repository, so the new collector has not yet been validated against a real accumulated dataset inside this repo.
+
+### Visualization Progress
+The project has now moved away from relying on Rerun as the primary visualization path on Linux. In practice, native Rerun rendering was not reliable on the target machine due to GPU / driver limitations, and the browser workflow was not ideal for local collection sessions.
+
+To address this, the repository now includes a shared local visualization layer that provides:
+- a dark-mode desktop Leap hand visualizer
+- a dark-mode desktop Myo EMG visualizer
+- a unified local collection dashboard showing both the 3D hand pose and 8-channel EMG traces alongside session state
+
+Rerun is still kept as an optional backend, but the intended default workflow is now the local professional dashboard path.
+
+### Collection UI Progress
+The repository is now also moving toward a proper GUI-first collection workflow instead of relying only on the terminal-triggered script.
+
+The current direction is:
+- a reusable collection controller that owns Leap + Myo hardware lifecycle, recording state, and episode saving
+- a `PySide6` desktop collection console for subject/session/pose setup and episode control
+- the existing dark-mode local dashboard kept as the live visualization companion window
+
+Once this GUI path is stable, the older terminal collection flow can be treated as a legacy fallback rather than the primary user-facing workflow.
 
 ### Recommended Implementation Order
 To rebuild this project neatly around Leap, the next steps should follow this order:

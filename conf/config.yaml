@@ -4,9 +4,11 @@
 episode_duration: 5.0 # Duration to record per episode (seconds)
 max_episodes: 20 # Maximum number of episodes to record
 subject_id: "user_1" # Subject or session identifier
+session_name: "session_1" # Session identifier for grouping episodes under a single collection run
 pose_name: "test_pose" # Name of the pose/activity being recorded
 save_dir: "datasets" # Root directory where episodes are saved
 
 # Visualization
-visualize: true # True to spawn a Rerun viewer during data collection
-web_viewer: false # If true, serve Rerun on a web port instead of a native window (fixes Linux display issues)
+visualize: true # True to show a live viewer during data collection
+visualizer_backend: "local" # "local" for the dark-mode Matplotlib dashboard, "rerun" for the old Rerun path
+web_viewer: false # Only used when visualizer_backend is "rerun"

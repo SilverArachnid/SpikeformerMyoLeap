@@ -9,6 +9,8 @@ dependencies = [
     "pyserial",
     "numpy",
     "pandas",
+    "matplotlib",
+    "PySide6",
     "rerun-sdk",
     "hydra-core"
 ]
