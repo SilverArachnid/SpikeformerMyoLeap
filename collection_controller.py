@@ -358,6 +358,9 @@ class CollectionController:
         episode_number = self.runtime["completed_episodes"] + 1
         episode_folder = self._episode_dir(episode_number)
         os.makedirs(episode_folder, exist_ok=False)
+        recorded_duration_seconds = 0.0 if self._recording_start is None else max(0.0, time.perf_counter() - self._recording_start)
+        effective_emg_hz = 0.0 if recorded_duration_seconds <= 0.0 else len(self._emg_data) / recorded_duration_seconds
+        effective_pose_hz = 0.0 if recorded_duration_seconds <= 0.0 else len(self._pose_data) / recorded_duration_seconds
 
         if self._emg_data:
             ts_emg, *channels = zip(*self._emg_data)
@@ -383,9 +386,11 @@ class CollectionController:
             "pose_name": self.settings.pose_name,
             "episode_number": episode_number,
             "duration_seconds": self.settings.episode_duration,
-            "recorded_duration_seconds": 0.0 if self._recording_start is None else max(0.0, time.perf_counter() - self._recording_start),
+            "recorded_duration_seconds": recorded_duration_seconds,
             "sample_count_emg": len(self._emg_data),
             "sample_count_pose": len(self._pose_data),
+            "effective_emg_hz": effective_emg_hz,
+            "effective_pose_hz": effective_pose_hz,
             "saved_at_utc": datetime.now(timezone.utc).isoformat(),
             "save_root": os.path.abspath(self.settings.save_dir),
             "session_dir": self._session_dir(),
