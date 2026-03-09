@@ -69,9 +69,8 @@ This means the current collector is broadly file-format compatible with the old 
 3. Replace raw Cartesian targets with a more useful representation such as joint angles or wrist-relative kinematic features.
 
 ### Current Risks / Known Gaps
-- Episodes are currently saved as `datasets/<pose_name>_epN`, so repeated runs with the same pose name can overwrite previous data.
-- `subject_id` is stored in metadata but is not yet used in the directory structure.
-- The new `meta.json` is lighter than the older project metadata and does not currently store explicit start/end timestamps.
+- The project is still collection-first; preprocessing, dataset assembly, and training code have not yet been ported into this repository.
+- The raw collection format is now much cleaner, but the future preprocessing layer still needs to decide how to use `XYZ` by default while retaining an optional `XY` training mode.
 - The `datasets/` directory is still empty in this repository, so the new collector has not yet been validated against a real accumulated dataset inside this repo.
 
 ### Visualization Progress
@@ -93,6 +92,17 @@ The current direction is:
 - the existing dark-mode local dashboard kept as the live visualization companion window
 
 Once this GUI path is stable, the older terminal collection flow can be treated as a legacy fallback rather than the primary user-facing workflow.
+
+### Restructure Progress
+The codebase is also now being restructured into an importable `src/` package so that future preprocessing, training, and streaming inference work can reuse the same collection and visualization logic instead of duplicating it in standalone scripts.
+
+The current package direction is:
+- `src/spikeformer_myo_leap/collection/`
+- `src/spikeformer_myo_leap/visualization/`
+- `src/spikeformer_myo_leap/data/`
+- `src/spikeformer_myo_leap/app/`
+
+Top-level scripts are being kept as thin wrappers so current commands remain stable while the internals become properly modular.
 
 ### Recommended Implementation Order
 To rebuild this project neatly around Leap, the next steps should follow this order:

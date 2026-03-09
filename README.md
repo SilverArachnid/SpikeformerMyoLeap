@@ -5,6 +5,7 @@ Version 2 of the SpikeformerMyo project. This repository contains a standalone, 
 ## Features
 - **Standalone Environment**: Uses `uv` and `pyproject.toml` to manage dependencies, including local CFFI compilation for the Leap SDK.
 - **Hydra Configuration**: Collection defaults live in `conf/config.yaml`.
+- **Importable Package Layout**: Core collection, visualization, and data-IO logic now live under `src/spikeformer_myo_leap/` instead of only in top-level scripts.
 - **Professional Local Visualizers**: Dark-mode desktop dashboards for Leap-only, Myo-only, and full collection monitoring.
 - **Desktop Collection UI**: A `PySide6` collection console for subject/session/pose setup, session control, and guided episode recording.
 - **Optional Rerun Path**: Rerun remains available as an optional backend, but the default workflow now avoids its Linux GPU issues.
@@ -70,3 +71,32 @@ Each episode contains:
 - `effective_pose_hz`
 
 These are derived from the actual captured sample counts and recorded duration, and should be used later during data cleaning and resampling rather than assuming a fixed acquisition rate.
+
+## Code Layout
+
+The current working code is now organized as an importable package:
+
+```text
+src/spikeformer_myo_leap/
+  app/
+  collection/
+  data/
+  visualization/
+```
+
+Current responsibilities:
+- `app/`: desktop GUI entry logic
+- `collection/`: hardware lifecycle, recording controller, terminal collector wrapper
+- `data/`: shared contracts, save/load helpers, raw episode discovery
+- `visualization/`: local dashboard and optional Rerun viewers
+
+The top-level scripts are kept as thin wrappers so existing commands still work.
+
+## Preprocessing Readiness
+
+This PR does not add preprocessing or model training yet, but it prepares the codebase for that next step by introducing:
+- a shared data contract for collection settings and landmark naming
+- centralized episode save/load helpers
+- raw dataset discovery utilities via `spikeformer_myo_leap.data.raw`
+
+That means the next preprocessing/training work can be built on stable importable interfaces instead of adding more logic into top-level scripts.
