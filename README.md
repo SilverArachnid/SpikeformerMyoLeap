@@ -19,9 +19,13 @@ GUI-based collection workflow:
 
 ![Data Collection GUI](docs/media/data-collection-gui.png)
 
+Combined Leap + Myo collection preview:
+
+![Combined Leap + Myo collection demo](docs/media/combined-data-collection.gif)
+
 Recorded previews:
 - [Leap visualizer demo](docs/media/leap-visualizer.webm)
-- [Combined Leap + Myo collection demo](docs/media/combined-data-collection.webm)
+- [Combined Leap + Myo collection video](docs/media/combined-data-collection.webm)
 
 ## Quickstart
 
