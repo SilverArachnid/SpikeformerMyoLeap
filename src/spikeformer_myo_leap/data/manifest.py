@@ -1,3 +1,5 @@
+"""Manifest helpers for indexing saved recording episodes."""
+
 from dataclasses import asdict, dataclass
 import os
 
@@ -8,6 +10,8 @@ from .raw import list_episode_paths, load_episode_metadata
 
 @dataclass
 class EpisodeManifestRecord:
+    """A flattened metadata record for one saved episode."""
+
     episode_dir: str
     subject_id: str
     session_name: str
@@ -21,6 +25,8 @@ class EpisodeManifestRecord:
 
 
 def build_manifest(dataset_root: str) -> list[EpisodeManifestRecord]:
+    """Build a sorted manifest from all discoverable episodes under ``dataset_root``."""
+
     records: list[EpisodeManifestRecord] = []
     for episode in list_episode_paths(dataset_root):
         meta = load_episode_metadata(episode.meta_json)
@@ -43,4 +49,6 @@ def build_manifest(dataset_root: str) -> list[EpisodeManifestRecord]:
 
 
 def manifest_dataframe(dataset_root: str) -> pd.DataFrame:
+    """Return the episode manifest as a pandas dataframe."""
+
     return pd.DataFrame(asdict(record) for record in build_manifest(dataset_root))
