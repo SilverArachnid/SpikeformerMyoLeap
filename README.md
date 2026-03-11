@@ -6,9 +6,12 @@ Version 2 of the SpikeformerMyo project. This repository contains a standalone, 
 - **Standalone Environment**: Uses `uv` and `pyproject.toml` to manage dependencies, including local CFFI compilation for the Leap SDK.
 - **Hydra Configuration**: Collection defaults live in `conf/config.yaml`.
 - **Importable Package Layout**: Core collection, visualization, and data-IO logic now live under `src/spikeformer_myo_leap/` instead of only in top-level scripts.
+- **Package Entry Points**: Runnable script entry points now live under `src/spikeformer_myo_leap/scripts/`, while top-level scripts remain compatibility wrappers.
 - **Professional Local Visualizers**: Dark-mode desktop dashboards for Leap-only, Myo-only, and full collection monitoring.
 - **Desktop Collection UI**: A `PySide6` collection console for subject/session/pose setup, session control, and guided episode recording.
 - **Optional Rerun Path**: Rerun remains available as an optional backend, but the default workflow now avoids its Linux GPU issues.
+
+See [Project Summary](docs/PROJECT_SUMMARY.md) for the longer architecture and roadmap notes.
 
 ## Quickstart
 
@@ -81,6 +84,7 @@ src/spikeformer_myo_leap/
   app/
   collection/
   data/
+  scripts/
   visualization/
 ```
 
@@ -88,6 +92,7 @@ Current responsibilities:
 - `app/`: desktop GUI entry logic
 - `collection/`: hardware lifecycle, recording controller, terminal collector wrapper
 - `data/`: shared contracts, save/load helpers, raw episode discovery
+- `scripts/`: package-level runnable entry points
 - `visualization/`: local dashboard and optional Rerun viewers
 
 The top-level scripts are kept as thin wrappers so existing commands still work.

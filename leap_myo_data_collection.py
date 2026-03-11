@@ -3,7 +3,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
-from spikeformer_myo_leap.collection.terminal import main
+from spikeformer_myo_leap.scripts.leap_myo_data_collection import main
 
 
 if __name__ == "__main__":
