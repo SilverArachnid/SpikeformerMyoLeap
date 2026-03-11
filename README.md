@@ -13,6 +13,16 @@ Version 2 of the SpikeformerMyo project. This repository contains a standalone, 
 
 See [Project Summary](docs/PROJECT_SUMMARY.md) for the longer architecture and roadmap notes.
 
+## Collection Showcase
+
+GUI-based collection workflow:
+
+![Data Collection GUI](docs/media/data-collection-gui.png)
+
+Recorded previews:
+- [Leap visualizer demo](docs/media/leap-visualizer.webm)
+- [Combined Leap + Myo collection demo](docs/media/combined-data-collection.webm)
+
 ## Quickstart
 
 1. Clone this repository adjacent to the `leapc-python-bindings` repository.
