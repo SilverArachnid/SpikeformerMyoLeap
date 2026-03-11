@@ -1,6 +1,10 @@
+"""Preprocessing utilities for resampling and normalizing recorded episodes."""
+
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
+from numpy.typing import NDArray
 
 from spikeformer_myo_leap.config import PreprocessingConfig
 
@@ -11,20 +15,24 @@ from .transforms import make_wrist_relative_pose
 
 @dataclass
 class PreprocessedEpisode:
+    """Container for one preprocessed episode aligned to a shared timebase."""
+
     episode_dir: str
-    emg_timestamps_ms: np.ndarray
-    emg: np.ndarray
-    pose_timestamps_ms: np.ndarray
-    pose: np.ndarray
+    emg_timestamps_ms: NDArray[np.float32]
+    emg: NDArray[np.float32]
+    pose_timestamps_ms: NDArray[np.float32]
+    pose: NDArray[np.float32]
     target_mode: str
-    metadata: dict
+    metadata: dict[str, Any]
 
 
 def _resample_series(
-    timestamps_ms: np.ndarray,
-    values: np.ndarray,
-    target_timestamps_ms: np.ndarray,
-) -> np.ndarray:
+    timestamps_ms: NDArray[np.float32],
+    values: NDArray[np.float32],
+    target_timestamps_ms: NDArray[np.float32],
+) -> NDArray[np.float32]:
+    """Interpolate a multi-channel timeseries onto a target timestamp grid."""
+
     if len(timestamps_ms) == 0 or len(values) == 0:
         return np.empty((0, values.shape[1] if values.ndim == 2 else 0), dtype=np.float32)
 
@@ -39,7 +47,9 @@ def _resample_series(
     return np.stack(resampled_columns, axis=1).astype(np.float32)
 
 
-def build_target_timestamps(duration_seconds: float, resample_hz: float) -> np.ndarray:
+def build_target_timestamps(duration_seconds: float, resample_hz: float) -> NDArray[np.float32]:
+    """Construct the synchronized timestamp grid used for one episode."""
+
     if duration_seconds <= 0.0 or resample_hz <= 0.0:
         return np.empty((0,), dtype=np.float32)
     num_steps = max(int(round(duration_seconds * resample_hz)), 1)
@@ -50,6 +60,8 @@ def preprocess_episode(
     episode_paths: EpisodePaths,
     config: PreprocessingConfig,
 ) -> PreprocessedEpisode:
+    """Load, resample, and normalize a single episode according to ``config``."""
+
     metadata = load_episode_metadata(episode_paths.meta_json)
     duration_seconds = float(metadata.get("recorded_duration_seconds", 0.0))
     target_timestamps_ms = build_target_timestamps(duration_seconds, config.resample_hz)

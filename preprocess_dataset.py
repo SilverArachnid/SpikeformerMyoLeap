@@ -1,3 +1,5 @@
+"""Compatibility wrapper for the packaged preprocessing entry point."""
+
 import os
 import sys
 
