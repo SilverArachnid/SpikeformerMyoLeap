@@ -65,6 +65,12 @@ uv run leap_myo_data_collection.py
 ```
 Press `Space` to record the next episode, `s` to stop early and save, and `Esc` or `q` to quit.
 
+6. Preprocessing smoke test:
+```bash
+uv run preprocess_dataset.py
+```
+This currently validates that the preprocessing stack can discover the dataset and build an episode manifest from the saved collection layout.
+
 If `visualize: true` and `visualizer_backend: "local"` are enabled, the legacy collector uses the same local dashboard for:
 - tracked 3D Leap hand pose
 - rolling 8-channel EMG traces
@@ -95,27 +101,34 @@ The current working code is now organized as an importable package:
 
 ```text
 src/spikeformer_myo_leap/
-  app/
-  collection/
-  data/
-  scripts/
-  visualization/
+  app/            # desktop GUI entry logic
+  collection/     # hardware lifecycle and recording controller
+  config/         # shared config dataclasses and defaults
+  data/           # raw IO, manifests, loaders, transforms, preprocessing
+  scripts/        # package-level runnable entry points
+  visualization/  # local dashboard and optional Rerun viewers
 ```
 
 Current responsibilities:
 - `app/`: desktop GUI entry logic
 - `collection/`: hardware lifecycle, recording controller, terminal collector wrapper
-- `data/`: shared contracts, save/load helpers, raw episode discovery
+- `config/`: preprocessing and future training configuration objects
+- `data/`: shared contracts, save/load helpers, raw episode discovery, manifests, loaders, and preprocessing
 - `scripts/`: package-level runnable entry points
 - `visualization/`: local dashboard and optional Rerun viewers
 
 The top-level scripts are kept as thin wrappers so existing commands still work.
 
+Each major package folder now carries a small local `README.md` as it is introduced, so the structure stays self-documented while preprocessing and training modules are added.
+
 ## Preprocessing Readiness
 
-This PR does not add preprocessing or model training yet, but it prepares the codebase for that next step by introducing:
+The preprocessing branch is now adding the first dedicated data-pipeline modules:
 - a shared data contract for collection settings and landmark naming
 - centralized episode save/load helpers
 - raw dataset discovery utilities via `spikeformer_myo_leap.data.raw`
+- episode manifest building via `spikeformer_myo_leap.data.manifest`
+- array loaders via `spikeformer_myo_leap.data.loaders`
+- resampling and wrist-relative pose transforms via `spikeformer_myo_leap.data.preprocessing` and `spikeformer_myo_leap.data.transforms`
 
 That means the next preprocessing/training work can be built on stable importable interfaces instead of adding more logic into top-level scripts.
