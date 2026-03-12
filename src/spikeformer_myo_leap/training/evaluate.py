@@ -2,18 +2,20 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any
 
 import numpy as np
 import torch
 from sklearn.metrics import mean_absolute_error, mean_squared_error
 from torch.utils.data import DataLoader
+from tqdm import tqdm
 
 from spikeformer_myo_leap.models import create_model
 
 from .config import EvaluationConfig
 from .datasets import build_windowed_dataset
-from .train import resolve_device
+from .train import reset_model_state, resolve_device
 
 
 def evaluate_model(config: EvaluationConfig) -> dict[str, Any]:
@@ -22,6 +24,7 @@ def evaluate_model(config: EvaluationConfig) -> dict[str, Any]:
     if not config.checkpoint_path:
         raise ValueError("checkpoint_path must be set before running evaluation.")
 
+    start_time = time.perf_counter()
     device = resolve_device(config.device)
     dataset = build_windowed_dataset(
         dataset_root=config.dataset.dataset_root,
@@ -45,8 +48,11 @@ def evaluate_model(config: EvaluationConfig) -> dict[str, Any]:
 
     predictions: list[np.ndarray] = []
     targets: list[np.ndarray] = []
+    print(f"Evaluating {config.model_name} on {device} with {len(dataset)} samples.")
     with torch.no_grad():
-        for emg_batch, pose_batch in data_loader:
+        progress = tqdm(data_loader, desc="Evaluation", leave=False)
+        for emg_batch, pose_batch in progress:
+            reset_model_state(model)
             prediction = model(emg_batch.to(device)).cpu().numpy()
             predictions.append(prediction)
             targets.append(pose_batch.numpy())
@@ -55,10 +61,13 @@ def evaluate_model(config: EvaluationConfig) -> dict[str, Any]:
     y_true = np.concatenate(targets, axis=0)
     rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
     mae = float(mean_absolute_error(y_true, y_pred))
+    runtime_seconds = time.perf_counter() - start_time
+    print(f"Evaluation complete in {runtime_seconds:.2f}s. rmse={rmse:.4f}, mae={mae:.4f}")
     return {
         "dataset_size": len(dataset),
         "rmse": rmse,
         "mae": mae,
         "model_name": config.model_name,
         "target_mode": config.dataset.preprocessing.target_mode,
+        "runtime_seconds": runtime_seconds,
     }
