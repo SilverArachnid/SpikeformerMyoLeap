@@ -17,3 +17,6 @@ This folder contains the training-facing dataset adapters, config objects, and t
   - a higher-level subtree such as `user_1/session_2/test_pose`
   - or an individual `ep_XXXX` directory
 - When `include_paths` is empty, the full `dataset_root` is scanned for complete episodes.
+- Hydra YAML configs for training and evaluation live under `src/spikeformer_myo_leap/training/conf/`.
+- Model, dataset, and split presets can be swapped with Hydra overrides such as `model=transformer` or `dataset=user1_session2_test_pose`.
+- Training and evaluation now print progress bars, epoch summaries, and runtime information so long-running jobs are visible from the terminal.

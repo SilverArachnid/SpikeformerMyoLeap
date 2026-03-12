@@ -76,22 +76,49 @@ This currently validates that the preprocessing stack can discover the dataset a
 uv run train.py
 uv run evaluate.py
 ```
-These packaged entry points now sit on top of importable model, training, and preprocessing modules. They are the foundation for the next training-focused PRs rather than final polished CLI tools.
+These packaged entry points now use Hydra YAML configs on top of the importable model, training, and preprocessing modules.
+
+By default, `uv run train.py` uses the full dataset under `datasets/` via the default Hydra dataset preset.
 
 Example single-dataset training smoke test:
 ```bash
 uv run train.py \
-  --model-name transformer \
-  --include-path user_1/session_2/test_pose \
-  --target-mode xyz \
-  --resample-hz 100 \
-  --window-size 64 \
-  --stride 8 \
-  --num-epochs 1 \
-  --batch-size 16 \
-  --device cpu \
-  --output-dir artifacts/train_smoke \
-  --model-kwargs '{"embed_dim": 32, "num_layers": 2, "heads": 4, "ff_mult": 2, "dropout": 0.1}'
+  model=transformer \
+  dataset=user1_session2_test_pose \
+  num_epochs=1 \
+  batch_size=16 \
+  device=cpu \
+  output_dir=artifacts/train_smoke \
+  model.model_kwargs.embed_dim=32 \
+  model.model_kwargs.num_layers=2
+```
+
+Example full-dataset runs for each model:
+
+```bash
+uv run train.py model=spikeformer
+```
+
+```bash
+uv run train.py model=transformer
+```
+
+```bash
+uv run train.py model=cnn_lstm
+```
+
+```bash
+uv run train.py model=cnn
+```
+
+```bash
+uv run train.py model=spiking_cnn
+```
+
+You can combine those with dataset or optimization overrides, for example:
+
+```bash
+uv run train.py model=transformer dataset=user1_session2_test_pose num_epochs=1 device=cpu
 ```
 
 If `visualize: true` and `visualizer_backend: "local"` are enabled, the legacy collector uses the same local dashboard for:
