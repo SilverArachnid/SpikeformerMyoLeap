@@ -71,6 +71,29 @@ uv run preprocess_dataset.py
 ```
 This currently validates that the preprocessing stack can discover the dataset and build an episode manifest from the saved collection layout.
 
+7. Training and evaluation entry points:
+```bash
+uv run train.py
+uv run evaluate.py
+```
+These packaged entry points now sit on top of importable model, training, and preprocessing modules. They are the foundation for the next training-focused PRs rather than final polished CLI tools.
+
+Example single-dataset training smoke test:
+```bash
+uv run train.py \
+  --model-name transformer \
+  --include-path user_1/session_2/test_pose \
+  --target-mode xyz \
+  --resample-hz 100 \
+  --window-size 64 \
+  --stride 8 \
+  --num-epochs 1 \
+  --batch-size 16 \
+  --device cpu \
+  --output-dir artifacts/train_smoke \
+  --model-kwargs '{"embed_dim": 32, "num_layers": 2, "heads": 4, "ff_mult": 2, "dropout": 0.1}'
+```
+
 If `visualize: true` and `visualizer_backend: "local"` are enabled, the legacy collector uses the same local dashboard for:
 - tracked 3D Leap hand pose
 - rolling 8-channel EMG traces
@@ -105,7 +128,9 @@ src/spikeformer_myo_leap/
   collection/     # hardware lifecycle and recording controller
   config/         # shared config dataclasses and defaults
   data/           # raw IO, manifests, loaders, transforms, preprocessing
+  models/         # one file per model family plus a registry
   scripts/        # package-level runnable entry points
+  training/       # dataset adapters, configs, train/eval loops
   visualization/  # local dashboard and optional Rerun viewers
 ```
 
@@ -114,7 +139,9 @@ Current responsibilities:
 - `collection/`: hardware lifecycle, recording controller, terminal collector wrapper
 - `config/`: preprocessing and future training configuration objects
 - `data/`: shared contracts, save/load helpers, raw episode discovery, manifests, loaders, and preprocessing
+- `models/`: Spikeformer, Transformer, CNN-LSTM, CNN, and spiking CNN regressors
 - `scripts/`: package-level runnable entry points
+- `training/`: dataset builders, training config objects, and train/evaluate loops
 - `visualization/`: local dashboard and optional Rerun viewers
 
 The top-level scripts are kept as thin wrappers so existing commands still work.

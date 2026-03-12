@@ -10,3 +10,5 @@ This folder contains thin package entry points for user-facing commands.
 - `visualize_leap.py`: Launches the Leap visualizer.
 - `visualize_myo.py`: Launches the Myo visualizer.
 - `preprocess_dataset.py`: Small preprocessing entry point for manifest and dataset-pipeline checks.
+- `train.py`: Training entry point for packaged model training.
+- `evaluate.py`: Checkpoint evaluation entry point for packaged models.
