@@ -1,0 +1,5 @@
+model_name: spiking_cnn
+model_kwargs:
+  embed_dim: 64
+  num_blocks: 4
+  backend: torch

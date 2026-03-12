@@ -4,18 +4,16 @@ from __future__ import annotations
 
 import json
 
-from spikeformer_myo_leap.training import EvaluationConfig, evaluate_model
+import hydra
+from omegaconf import DictConfig, OmegaConf
 
+from spikeformer_myo_leap.training import build_evaluation_config, evaluate_model
 
-def main() -> None:
-    """Run evaluation with the default packaged evaluation config."""
+@hydra.main(config_path="../training/conf", config_name="evaluate", version_base="1.3")
+def main(cfg: DictConfig) -> None:
+    """Run checkpoint evaluation from Hydra-composed YAML configuration."""
 
-    config = EvaluationConfig()
-    if not config.checkpoint_path:
-        raise ValueError(
-            "Default evaluation config has no checkpoint_path set. "
-            "Construct EvaluationConfig(checkpoint_path=...) before using this entry point."
-        )
+    config = build_evaluation_config(OmegaConf.to_container(cfg, resolve=True))
     summary = evaluate_model(config)
     print(json.dumps(summary, indent=2))
 

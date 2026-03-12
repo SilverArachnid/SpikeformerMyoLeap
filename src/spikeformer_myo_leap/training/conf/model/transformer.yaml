@@ -1,0 +1,7 @@
+model_name: transformer
+model_kwargs:
+  embed_dim: 64
+  num_layers: 4
+  heads: 4
+  ff_mult: 2
+  dropout: 0.1
