@@ -56,6 +56,29 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
         train_fraction=config.split.train_fraction,
         seed=config.split.seed,
     )
+    dataset_location = (
+        f"dataset_root={config.dataset.dataset_root!r}, include_paths={config.dataset.include_paths!r}"
+    )
+    if len(full_dataset.episode_paths) == 0:
+        raise ValueError(
+            "No complete episodes were found for training "
+            f"({dataset_location})."
+        )
+    if len(full_dataset) == 0:
+        raise ValueError(
+            "The selected dataset contains no windowed samples after preprocessing "
+            f"({dataset_location}). Check episode duration, resample_hz, and window_size."
+        )
+    if len(train_dataset.episode_paths) == 0 or len(train_dataset) == 0:
+        raise ValueError(
+            "The train split is empty after episode-level splitting "
+            f"({dataset_location}). Check train_fraction and dataset size."
+        )
+    if len(val_dataset.episode_paths) == 0 or len(val_dataset) == 0:
+        raise ValueError(
+            "The validation split is empty after episode-level splitting "
+            f"({dataset_location}). Add more complete episodes or adjust train_fraction/window_size."
+        )
 
     train_loader = DataLoader(
         train_dataset,
