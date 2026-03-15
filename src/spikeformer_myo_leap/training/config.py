@@ -53,6 +53,14 @@ class TrainingConfig:
     device: str = "auto"
     num_workers: int = 0
     model_kwargs: dict[str, object] = field(default_factory=dict)
+    full_episode_eval: dict[str, object] = field(
+        default_factory=lambda: {
+            "enabled": True,
+            "every_n_epochs": 5,
+            "num_episodes": 1,
+            "save_visualizations": True,
+        }
+    )
 
 
 @dataclass
@@ -120,6 +128,7 @@ def build_training_config(data: Mapping[str, Any]) -> TrainingConfig:
         device=str(data.get("device", "auto")),
         num_workers=int(data.get("num_workers", 0)),
         model_kwargs=dict(model_node.get("model_kwargs", data.get("model_kwargs", {}))),
+        full_episode_eval=dict(data.get("full_episode_eval", {})),
     )
 
 

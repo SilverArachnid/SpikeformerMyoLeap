@@ -7,7 +7,7 @@ import os
 from typing import Sequence
 
 import torch
-from torch.utils.data import Dataset, Subset
+from torch.utils.data import Dataset
 
 from spikeformer_myo_leap.config import PreprocessingConfig
 from spikeformer_myo_leap.data.preprocessing import PreprocessedEpisode, preprocess_episode
@@ -146,20 +146,42 @@ def build_dataset_splits(
     stride: int = 1,
     train_fraction: float = 0.8,
     seed: int = 42,
-) -> tuple[WindowedPoseDataset, Subset[WindowedPoseDataset], Subset[WindowedPoseDataset]]:
-    """Build train/validation splits from the windowed dataset."""
+) -> tuple[WindowedPoseDataset, WindowedPoseDataset, WindowedPoseDataset]:
+    """Build episode-disjoint train/validation splits from the windowed dataset.
 
-    dataset = build_windowed_dataset(
-        dataset_root=dataset_root,
+    The split happens at the episode level first, then window datasets are built from
+    the resulting disjoint episode lists. This avoids leakage where adjacent windows from
+    the same recorded episode end up in both train and validation sets.
+    """
+
+    episode_paths = collect_episode_paths(dataset_root=dataset_root, include_paths=include_paths)
+    num_episodes = len(episode_paths)
+    train_size = int(num_episodes * train_fraction)
+    train_size = min(max(train_size, 1), max(num_episodes - 1, 1)) if num_episodes > 1 else num_episodes
+    generator = torch.Generator().manual_seed(seed)
+    permutation = torch.randperm(num_episodes, generator=generator).tolist()
+    train_indices = permutation[:train_size]
+    val_indices = permutation[train_size:]
+
+    train_episode_paths = [episode_paths[index] for index in train_indices]
+    val_episode_paths = [episode_paths[index] for index in val_indices]
+
+    full_dataset = WindowedPoseDataset(
+        episode_paths=episode_paths,
         preprocessing=preprocessing,
-        include_paths=include_paths,
         window_size=window_size,
         stride=stride,
     )
-    num_samples = len(dataset)
-    train_size = int(num_samples * train_fraction)
-    generator = torch.Generator().manual_seed(seed)
-    permutation = torch.randperm(num_samples, generator=generator).tolist()
-    train_indices = permutation[:train_size]
-    val_indices = permutation[train_size:]
-    return dataset, Subset(dataset, train_indices), Subset(dataset, val_indices)
+    train_dataset = WindowedPoseDataset(
+        episode_paths=train_episode_paths,
+        preprocessing=preprocessing,
+        window_size=window_size,
+        stride=stride,
+    )
+    val_dataset = WindowedPoseDataset(
+        episode_paths=val_episode_paths,
+        preprocessing=preprocessing,
+        window_size=window_size,
+        stride=stride,
+    )
+    return full_dataset, train_dataset, val_dataset

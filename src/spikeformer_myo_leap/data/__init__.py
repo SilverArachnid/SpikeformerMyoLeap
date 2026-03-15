@@ -1,4 +1,4 @@
-from .contracts import LANDMARK_NAMES, CollectionSettings
+from .contracts import HAND_CONNECTIONS, LANDMARK_NAMES, CollectionSettings
 from .io import episode_dir, pose_dir, save_episode, session_dir
 from .loaders import emg_columns, load_emg_array, load_pose_array, pose_columns
 from .manifest import EpisodeManifestRecord, build_manifest, manifest_dataframe
@@ -10,6 +10,7 @@ __all__ = [
     "CollectionSettings",
     "EpisodeManifestRecord",
     "EpisodePaths",
+    "HAND_CONNECTIONS",
     "LANDMARK_NAMES",
     "PreprocessedEpisode",
     "build_manifest",

@@ -17,6 +17,7 @@ from spikeformer_myo_leap.models import create_model
 
 from .config import TrainingConfig
 from .datasets import build_dataset_splits
+from .full_episode import run_full_episode_validation
 
 try:
     from spikingjelly.clock_driven import functional as spiking_functional
@@ -82,11 +83,13 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
 
     best_val_loss = float("inf")
     history = {"train_losses": [], "val_losses": []}
+    full_episode_history: list[dict[str, Any]] = []
     best_checkpoint = os.path.join(config.output_dir, f"{config.model_name}_best.pt")
     last_checkpoint = os.path.join(config.output_dir, f"{config.model_name}_last.pt")
     print(
         f"Training {config.model_name} on {device} "
-        f"with {len(train_dataset)} train samples and {len(val_dataset)} val samples."
+        f"with {len(train_dataset.episode_paths)} train episodes / {len(val_dataset.episode_paths)} val episodes "
+        f"and {len(train_dataset)} train samples / {len(val_dataset)} val samples."
     )
 
     for epoch_index in range(config.num_epochs):
@@ -148,15 +151,42 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
             f"epoch_time={epoch_seconds:.2f}s{checkpoint_note}"
         )
 
+        full_episode_results = run_full_episode_validation(
+            model=model,
+            episodes=val_dataset.episodes,
+            device=device,
+            window_size=config.dataset.window_size,
+            output_dir=config.output_dir,
+            epoch_index=epoch_index,
+            config=config.full_episode_eval,
+            reset_model_state=reset_model_state,
+        )
+        if full_episode_results:
+            full_episode_history.append(
+                {
+                    "epoch": epoch_index + 1,
+                    "results": [asdict(result) for result in full_episode_results],
+                }
+            )
+            for result in full_episode_results:
+                print(
+                    f"  Full-episode val: rmse={result.rmse:.4f}, mae={result.mae:.4f}, "
+                    f"frames={result.valid_frame_count}, episode={result.episode_dir}"
+                )
+
     torch.save(model.state_dict(), last_checkpoint)
     total_runtime_seconds = time.perf_counter() - run_start_time
 
     summary = {
+        "episode_count": len(full_dataset.episode_paths),
+        "train_episode_count": len(train_dataset.episode_paths),
+        "val_episode_count": len(val_dataset.episode_paths),
         "dataset_size": len(full_dataset),
         "train_size": len(train_dataset),
         "val_size": len(val_dataset),
         "best_val_loss": best_val_loss,
         "history": history,
+        "full_episode_history": full_episode_history,
         "checkpoints": {"best": best_checkpoint, "last": last_checkpoint},
         "model_name": config.model_name,
         "target_mode": config.dataset.preprocessing.target_mode,
