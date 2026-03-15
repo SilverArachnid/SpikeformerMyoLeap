@@ -57,15 +57,34 @@ def predict_full_episode(
     return predictions, episode.pose.astype(np.float32), valid_mask
 
 
-def _reshape_pose_for_plotting(frame: np.ndarray) -> np.ndarray:
-    """Reshape a flat pose vector into ``[21, 3]`` joint coordinates."""
+def _reshape_pose_for_plotting(frame: np.ndarray, target_mode: str) -> np.ndarray:
+    """Reshape a flat pose vector into joint coordinates for visualization.
 
+    Args:
+        frame: Flat pose vector for one frame.
+        target_mode: Pose representation mode. Currently only ``"xyz"`` is supported
+            for 3D visualization.
+
+    Raises:
+        ValueError: If ``target_mode`` is not supported by the 3D plotting pipeline.
+    """
+
+    if target_mode != "xyz":
+        raise ValueError(
+            "Full-episode 3D visualization only supports target_mode='xyz'. "
+            f"Received target_mode={target_mode!r}."
+        )
     return frame.reshape(-1, 3)
 
 
-def _axis_limits(targets: np.ndarray, predictions: np.ndarray) -> tuple[float, float]:
+def _axis_limits(targets: np.ndarray, predictions: np.ndarray, target_mode: str) -> tuple[float, float]:
     """Compute symmetric plot bounds for 3D skeleton visualization."""
 
+    if target_mode != "xyz":
+        raise ValueError(
+            "Full-episode 3D visualization only supports target_mode='xyz'. "
+            f"Received target_mode={target_mode!r}."
+        )
     combined = np.concatenate([targets.reshape(-1, 3), predictions.reshape(-1, 3)], axis=0)
     bound = float(max(abs(np.nanmin(combined)), abs(np.nanmax(combined)), 1e-3))
     return -bound, bound
@@ -77,8 +96,13 @@ def save_episode_gif(
     targets: np.ndarray,
     valid_mask: np.ndarray,
     output_path: str,
+    target_mode: str,
 ) -> None:
-    """Save a side-by-side predicted-vs-ground-truth 3D skeleton GIF."""
+    """Save a side-by-side predicted-vs-ground-truth 3D skeleton GIF.
+
+    Raises:
+        ValueError: If ``target_mode`` is not supported by the visualization path.
+    """
 
     valid_indices = np.flatnonzero(valid_mask)
     if len(valid_indices) == 0:
@@ -86,7 +110,7 @@ def save_episode_gif(
 
     pred_valid = predictions[valid_mask]
     target_valid = targets[valid_mask]
-    lower, upper = _axis_limits(target_valid, pred_valid)
+    lower, upper = _axis_limits(target_valid, pred_valid, target_mode)
 
     figure = plt.figure(figsize=(10, 5), facecolor="#020617")
     pred_ax = figure.add_subplot(1, 2, 1, projection="3d")
@@ -120,7 +144,7 @@ def save_episode_gif(
         ax.set_zlim(lower, upper)
         ax.set_title(title, color="#e2e8f0")
         style_axis(ax)
-        joints = _reshape_pose_for_plotting(pose_frame)
+        joints = _reshape_pose_for_plotting(pose_frame, target_mode)
         for start_idx, end_idx in HAND_CONNECTIONS:
             segment = joints[[start_idx, end_idx]]
             ax.plot(segment[:, 0], segment[:, 1], segment[:, 2], color=line_color, linewidth=2)
@@ -187,13 +211,14 @@ def run_full_episode_validation(
         mae = float(mean_absolute_error(target_valid, pred_valid))
 
         visualization_path = None
-        if save_visualizations:
+        if save_visualizations and episode.target_mode == "xyz":
             visualization_path = os.path.join(epoch_dir, f"episode_{episode_number:02d}.gif")
             save_episode_gif(
                 predictions=predictions,
                 targets=targets,
                 valid_mask=valid_mask,
                 output_path=visualization_path,
+                target_mode=episode.target_mode,
             )
 
         results.append(
