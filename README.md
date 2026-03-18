@@ -71,6 +71,56 @@ uv run preprocess_dataset.py
 ```
 This currently validates that the preprocessing stack can discover the dataset and build an episode manifest from the saved collection layout.
 
+7. Training and evaluation entry points:
+```bash
+uv run train.py
+uv run evaluate.py
+```
+These packaged entry points now use Hydra YAML configs on top of the importable model, training, and preprocessing modules.
+
+By default, `uv run train.py` uses the full dataset under `datasets/` via the default Hydra dataset preset.
+
+Example single-dataset training smoke test:
+```bash
+uv run train.py \
+  model=transformer \
+  dataset=user1_session2_test_pose \
+  num_epochs=1 \
+  batch_size=16 \
+  device=cpu \
+  output_dir=artifacts/train_smoke \
+  model.model_kwargs.embed_dim=32 \
+  model.model_kwargs.num_layers=2
+```
+
+Example full-dataset runs for each model:
+
+```bash
+uv run train.py model=spikeformer
+```
+
+```bash
+uv run train.py model=transformer
+```
+
+```bash
+uv run train.py model=cnn_lstm
+```
+
+```bash
+uv run train.py model=cnn
+```
+
+```bash
+uv run train.py model=spiking_cnn
+```
+
+You can combine those with dataset or optimization overrides, for example:
+
+```bash
+uv run train.py model=transformer dataset=user1_session2_test_pose num_epochs=1 device=cpu
+```
+
 If `visualize: true` and `visualizer_backend: "local"` are enabled, the legacy collector uses the same local dashboard for:
 - tracked 3D Leap hand pose
 - rolling 8-channel EMG traces
@@ -105,7 +155,9 @@ src/spikeformer_myo_leap/
   collection/     # hardware lifecycle and recording controller
   config/         # shared config dataclasses and defaults
   data/           # raw IO, manifests, loaders, transforms, preprocessing
+  models/         # one file per model family plus a registry
   scripts/        # package-level runnable entry points
+  training/       # dataset adapters, configs, train/eval loops
   visualization/  # local dashboard and optional Rerun viewers
 ```
 
@@ -114,7 +166,9 @@ Current responsibilities:
 - `collection/`: hardware lifecycle, recording controller, terminal collector wrapper
 - `config/`: preprocessing and future training configuration objects
 - `data/`: shared contracts, save/load helpers, raw episode discovery, manifests, loaders, and preprocessing
+- `models/`: Spikeformer, Transformer, CNN-LSTM, CNN, and spiking CNN regressors
 - `scripts/`: package-level runnable entry points
+- `training/`: dataset builders, training config objects, and train/evaluate loops
 - `visualization/`: local dashboard and optional Rerun viewers
 
 The top-level scripts are kept as thin wrappers so existing commands still work.

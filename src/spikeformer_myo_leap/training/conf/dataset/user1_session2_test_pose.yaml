@@ -1,0 +1,12 @@
+dataset_root: datasets
+include_paths:
+  - user_1/session_2/test_pose
+window_size: 64
+stride: 8
+preprocessing:
+  dataset_root: datasets
+  target_mode: xyz
+  resample_hz: 100.0
+  emg_window_size: 64
+  use_wrist_relative_pose: true
+  validate_episodes: true

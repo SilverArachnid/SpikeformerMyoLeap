@@ -1,0 +1,5 @@
+model_name: cnn_lstm
+model_kwargs:
+  hidden_dim: 128
+  num_layers: 2
+  dropout: 0.1

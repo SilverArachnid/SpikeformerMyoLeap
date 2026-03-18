@@ -2,5 +2,7 @@ __pycache__/
 *.py[cod]
 datasets/
 outputs/
+artifacts/
 *.egg-info/
+vendor/
 docs/ROADMAP_ISSUES.md

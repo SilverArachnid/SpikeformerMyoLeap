@@ -1,0 +1,9 @@
+defaults:
+  - model: spikeformer
+  - dataset: default
+  - _self_
+
+batch_size: 64
+checkpoint_path: ""
+device: auto
+num_workers: 0

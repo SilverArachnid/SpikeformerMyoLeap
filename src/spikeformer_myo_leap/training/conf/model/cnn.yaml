@@ -1,0 +1,4 @@
+model_name: cnn
+model_kwargs:
+  embed_dim: 64
+  num_blocks: 4
