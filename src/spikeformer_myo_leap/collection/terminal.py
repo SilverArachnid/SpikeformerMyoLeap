@@ -31,6 +31,8 @@ def main(cfg: DictConfig):
 
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
+    last_status_message = ""
+    last_aborted_episode = ""
 
     try:
         controller.connect()
@@ -50,6 +52,15 @@ def main(cfg: DictConfig):
 
         while True:
             snapshot = controller.get_status_snapshot()
+            if snapshot["status_message"] != last_status_message:
+                print(f"[Status] {snapshot['status_message']}")
+                last_status_message = snapshot["status_message"]
+            if snapshot["last_aborted_episode"] and snapshot["last_aborted_episode"] != last_aborted_episode:
+                print(
+                    f"[Recovery] {snapshot['last_aborted_episode']} was aborted. "
+                    "Waiting for healthy sensor streams before the next recording."
+                )
+                last_aborted_episode = snapshot["last_aborted_episode"]
             if snapshot["completed_episodes"] >= snapshot["episodes_per_session"] and not snapshot["recording"]:
                 print("Reached configured episode count. Ending session.")
                 break
