@@ -155,13 +155,16 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
             ("Mode", "mode"),
             ("Message", "status_message"),
             ("Myo", "myo_connected"),
+            ("Myo Stream", "myo_streaming"),
             ("Leap", "leap_connected"),
+            ("Leap Stream", "leap_streaming"),
             ("Recording", "recording"),
             ("Session Active", "session_active"),
             ("Episode", "current_episode_label"),
             ("EMG Samples", "sample_count_emg"),
             ("Pose Samples", "sample_count_pose"),
             ("Last Saved", "last_saved_episode"),
+            ("Last Aborted", "last_aborted_episode"),
         ]
 
         for row_idx, (label, key) in enumerate(rows):
@@ -358,13 +361,16 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         self.status_labels["mode"].setText(str(snapshot["mode"]))
         self.status_labels["status_message"].setText(str(snapshot["status_message"]))
         self.status_labels["myo_connected"].setText("Connected" if snapshot["myo_connected"] else "Disconnected")
+        self.status_labels["myo_streaming"].setText("Healthy" if snapshot["myo_streaming"] else "Waiting")
         self.status_labels["leap_connected"].setText("Connected" if snapshot["leap_connected"] else "Disconnected")
+        self.status_labels["leap_streaming"].setText("Healthy" if snapshot["leap_streaming"] else "Waiting")
         self.status_labels["recording"].setText("Yes" if snapshot["recording"] else "No")
         self.status_labels["session_active"].setText("Yes" if snapshot["session_active"] else "No")
         self.status_labels["current_episode_label"].setText(str(snapshot["current_episode_label"]))
         self.status_labels["sample_count_emg"].setText(str(snapshot["sample_count_emg"]))
         self.status_labels["sample_count_pose"].setText(str(snapshot["sample_count_pose"]))
         self.status_labels["last_saved_episode"].setText(snapshot["last_saved_episode"] or "-")
+        self.status_labels["last_aborted_episode"].setText(snapshot["last_aborted_episode"] or "-")
 
         next_path = self.next_episode_path(snapshot, settings)
         self.path_preview.setText(f"Next episode path: {next_path}")
@@ -375,6 +381,10 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         session_dir = os.path.join(settings.save_dir, settings.subject_id, settings.session_name)
         if os.path.isdir(session_dir):
             warnings.append("Session directory already exists. New episodes will continue numbering inside it.")
+        if snapshot["hardware_running"] and (not snapshot["myo_streaming"] or not snapshot["leap_streaming"]):
+            warnings.append("Waiting for healthy data flow from both sensors before recording can resume.")
+        if snapshot["last_aborted_episode"]:
+            warnings.append(f"Most recent recording was aborted: {snapshot['last_aborted_episode']}.")
         self.warning_label.setText("\n".join(warnings))
 
         can_connect = not snapshot["hardware_running"]
@@ -386,6 +396,8 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
             and snapshot["session_active"]
             and snapshot["myo_connected"]
             and snapshot["leap_connected"]
+            and snapshot["myo_streaming"]
+            and snapshot["leap_streaming"]
             and not snapshot["recording"]
             and snapshot["completed_episodes"] < settings.episodes_per_session
             and not os.path.exists(next_path)
