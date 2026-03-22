@@ -11,10 +11,13 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
     def __init__(self):
         super().__init__()
         self.controller = CollectionController()
+        self.settings_store = QtCore.QSettings("SpikeformerMyoLeap", "CollectionGUI")
         self.setWindowTitle("SpikeformerMyoLeap | Data Collection")
         self.resize(980, 720)
 
         self._build_ui()
+        self._load_persisted_fields()
+        self._connect_field_persistence()
         self._apply_styles()
 
         self.status_timer = QtCore.QTimer(self)
@@ -98,6 +101,32 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         form.addRow("Episodes Per Session", self.episodes_spin)
         form.addRow("Save Root", save_dir_row)
         return group
+
+    def _load_persisted_fields(self):
+        self.subject_edit.setText(str(self.settings_store.value("subject_id", self.subject_edit.text())))
+        self.session_edit.setText(str(self.settings_store.value("session_name", self.session_edit.text())))
+        self.pose_edit.setText(str(self.settings_store.value("pose_name", self.pose_edit.text())))
+        self.duration_spin.setValue(float(self.settings_store.value("episode_duration", self.duration_spin.value())))
+        self.episodes_spin.setValue(int(self.settings_store.value("episodes_per_session", self.episodes_spin.value())))
+        self.save_dir_edit.setText(str(self.settings_store.value("save_dir", self.save_dir_edit.text())))
+
+    def _connect_field_persistence(self):
+        self.subject_edit.editingFinished.connect(self._persist_fields)
+        self.session_edit.editingFinished.connect(self._persist_fields)
+        self.pose_edit.editingFinished.connect(self._persist_fields)
+        self.duration_spin.valueChanged.connect(lambda _value: self._persist_fields())
+        self.episodes_spin.valueChanged.connect(lambda _value: self._persist_fields())
+        self.save_dir_edit.editingFinished.connect(self._persist_fields)
+
+    def _persist_fields(self):
+        settings = self.current_settings()
+        self.settings_store.setValue("subject_id", settings.subject_id)
+        self.settings_store.setValue("session_name", settings.session_name)
+        self.settings_store.setValue("pose_name", settings.pose_name)
+        self.settings_store.setValue("episode_duration", settings.episode_duration)
+        self.settings_store.setValue("episodes_per_session", settings.episodes_per_session)
+        self.settings_store.setValue("save_dir", settings.save_dir)
+        self.settings_store.sync()
 
     def _build_controls_group(self):
         group = QtWidgets.QGroupBox("Controls")
@@ -285,11 +314,13 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         selected = QtWidgets.QFileDialog.getExistingDirectory(self, "Choose Save Root", self.save_dir_edit.text() or ".")
         if selected:
             self.save_dir_edit.setText(selected)
+            self._persist_fields()
             self.refresh_status()
 
     def connect_hardware(self):
         try:
             settings = self.current_settings()
+            self._persist_fields()
             self.controller.set_settings(settings)
             self.controller.connect()
             self.refresh_status()
@@ -305,6 +336,7 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
 
     def start_session(self):
         try:
+            self._persist_fields()
             self.controller.start_session(self.current_settings())
             self.refresh_status()
         except Exception as exc:
@@ -319,6 +351,7 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
 
     def start_recording(self):
         settings = self.current_settings()
+        self._persist_fields()
         self.controller.set_settings(settings)
 
         snapshot = self.controller.get_status_snapshot()
@@ -424,6 +457,7 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
 
     def closeEvent(self, event):
         self.status_timer.stop()
+        self._persist_fields()
         self.controller.close()
         super().closeEvent(event)
 
