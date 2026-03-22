@@ -26,7 +26,6 @@ ACCENT = "#22d3ee"
 
 def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_emg, history_size):
     import matplotlib.pyplot as plt
-    from matplotlib.animation import FuncAnimation
 
     plt.rcParams.update({
         "figure.facecolor": FIG_BG,
@@ -56,6 +55,7 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
         "last_emg_update": None,
         "status_line": "Waiting for sensor data",
     }
+    stop_requested = False
 
     fig = plt.figure(figsize=(14, 8), facecolor=FIG_BG)
     if show_hand and show_emg:
@@ -99,6 +99,7 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
         style_2d_axis(emg_ax)
 
     def drain_queue():
+        nonlocal stop_requested
         while True:
             try:
                 payload, ts = hand_queue.get_nowait()
@@ -130,7 +131,7 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
                 break
 
             if payload == "__STOP__":
-                plt.close(fig)
+                stop_requested = True
                 break
             status.update(payload)
 
@@ -239,18 +240,25 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
         status_ax.text(0.54, 0.09, emg_age, fontsize=10.5, color=TEXT, transform=status_ax.transAxes)
         status_ax.text(0.08, 0.02, status.get("status_line", ""), fontsize=10, color=ACCENT, transform=status_ax.transAxes)
 
-    def update(_frame):
+    def update():
         drain_queue()
+        if stop_requested:
+            plt.close(fig)
+            return False
         render_hand()
         render_emg()
         render_status()
-        return []
+        fig.canvas.draw_idle()
+        return True
 
-    animation = FuncAnimation(fig, update, interval=33, cache_frame_data=False)
     try:
-        plt.show()
+        plt.show(block=False)
+        while plt.fignum_exists(fig.number):
+            if not update():
+                break
+            plt.pause(0.033)
     finally:
-        del animation
+        plt.close(fig)
 
 
 class LocalDashboard:
