@@ -72,8 +72,28 @@ def main(cfg: DictConfig):
                     print("\nQuitting...")
                     break
                 if char == " " and not snapshot["recording"]:
-                    print(f"\n[Episode {snapshot['completed_episodes'] + 1}/{snapshot['episodes_per_session']}] Recording started...")
-                    controller.start_episode()
+                    if snapshot.get("finalizing_episode"):
+                        print("\n[Status] Previous episode is still being saved. Please wait.")
+                        continue
+                    if not snapshot.get("myo_connected") or not snapshot.get("leap_connected"):
+                        print("\n[Status] Cannot record yet: both sensors must be connected.")
+                        continue
+                    if not snapshot.get("myo_streaming") or not snapshot.get("leap_streaming"):
+                        waiting = []
+                        if not snapshot.get("myo_streaming"):
+                            waiting.append("Myo")
+                        if not snapshot.get("leap_streaming"):
+                            waiting.append("Leap")
+                        print(f"\n[Status] Cannot record yet: waiting for healthy sensor data: {', '.join(waiting)}")
+                        continue
+                    try:
+                        print(
+                            f"\n[Episode {snapshot['completed_episodes'] + 1}/"
+                            f"{snapshot['episodes_per_session']}] Recording started..."
+                        )
+                        controller.start_episode()
+                    except RuntimeError as exc:
+                        print(f"\n[Status] Could not start recording: {exc}")
                 elif char.lower() == "s" and snapshot["recording"]:
                     print("\nStopping current episode early...")
                     controller.stop_episode()
