@@ -218,6 +218,21 @@ def apply_standardization(
     return ((values - mean_arr) / safe_std).astype(np.float32)
 
 
+def invert_standardization(
+    values: NDArray[np.float32],
+    mean: list[float] | None,
+    std: list[float] | None,
+) -> NDArray[np.float32]:
+    """Invert feature standardization when statistics are available."""
+
+    if mean is None or std is None or values.size == 0:
+        return values.astype(np.float32)
+    mean_arr = np.asarray(mean, dtype=np.float32)
+    std_arr = np.asarray(std, dtype=np.float32)
+    safe_std = np.where(std_arr < 1e-6, 1.0, std_arr)
+    return (values * safe_std + mean_arr).astype(np.float32)
+
+
 def fit_standardization(
     batches: list[NDArray[np.float32]],
 ) -> tuple[list[float] | None, list[float] | None]:

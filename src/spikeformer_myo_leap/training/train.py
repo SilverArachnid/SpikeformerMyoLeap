@@ -190,6 +190,7 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
             epoch_index=epoch_index,
             config=config.full_episode_eval,
             reset_model_state=reset_model_state,
+            normalization_stats=normalization_stats,
         )
         if full_episode_results:
             full_episode_history.append(

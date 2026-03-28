@@ -1,4 +1,9 @@
-"""Reusable checkpoint evaluation logic."""
+"""Reusable checkpoint evaluation logic.
+
+Standalone evaluation reuses the train-split normalization statistics saved in
+the checkpoint. Metrics are reported in the original target space by inverting
+target standardization before computing RMSE/MAE.
+"""
 
 from __future__ import annotations
 
@@ -11,7 +16,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from spikeformer_myo_leap.data import DatasetNormalizationStats
+from spikeformer_myo_leap.data import DatasetNormalizationStats, invert_standardization
 from spikeformer_myo_leap.models import create_model
 
 from .config import EvaluationConfig
@@ -68,8 +73,22 @@ def evaluate_model(config: EvaluationConfig) -> dict[str, Any]:
 
     y_pred = np.concatenate(predictions, axis=0)
     y_true = np.concatenate(targets, axis=0)
-    rmse = float(np.sqrt(mean_squared_error(y_true, y_pred)))
-    mae = float(mean_absolute_error(y_true, y_pred))
+    metric_predictions = y_pred
+    metric_targets = y_true
+    if normalization_stats is not None and normalization_stats.has_target_stats():
+        metric_predictions = invert_standardization(
+            y_pred,
+            normalization_stats.target_mean,
+            normalization_stats.target_std,
+        )
+        metric_targets = invert_standardization(
+            y_true,
+            normalization_stats.target_mean,
+            normalization_stats.target_std,
+        )
+
+    rmse = float(np.sqrt(mean_squared_error(metric_targets, metric_predictions)))
+    mae = float(mean_absolute_error(metric_targets, metric_predictions))
     runtime_seconds = time.perf_counter() - start_time
     print(f"Evaluation complete in {runtime_seconds:.2f}s. rmse={rmse:.4f}, mae={mae:.4f}")
     return {
