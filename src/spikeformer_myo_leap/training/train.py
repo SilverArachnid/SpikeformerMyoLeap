@@ -47,7 +47,7 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
     device = resolve_device(config.device)
     os.makedirs(config.output_dir, exist_ok=True)
 
-    full_dataset, train_dataset, val_dataset = build_dataset_splits(
+    full_dataset, train_dataset, val_dataset, normalization_stats = build_dataset_splits(
         dataset_root=config.dataset.dataset_root,
         preprocessing=config.dataset.preprocessing,
         include_paths=config.dataset.include_paths,
@@ -95,7 +95,7 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
         pin_memory=torch.cuda.is_available(),
     )
 
-    output_dim = 63 if config.dataset.preprocessing.target_mode == "xyz" else 42
+    output_dim = train_dataset.target_dim
     model = create_model(config.model_name, output_dim=output_dim, **config.model_kwargs).to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(
@@ -163,7 +163,14 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
         epoch_seconds = time.perf_counter() - epoch_start_time
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), best_checkpoint)
+            torch.save(
+                {
+                    "model_state_dict": model.state_dict(),
+                    "normalization_stats": normalization_stats.to_dict() if normalization_stats is not None else None,
+                    "config": asdict(config),
+                },
+                best_checkpoint,
+            )
             checkpoint_note = " | saved new best checkpoint"
         else:
             checkpoint_note = ""
@@ -197,7 +204,14 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
                     f"frames={result.valid_frame_count}, episode={result.episode_dir}"
                 )
 
-    torch.save(model.state_dict(), last_checkpoint)
+    torch.save(
+        {
+            "model_state_dict": model.state_dict(),
+            "normalization_stats": normalization_stats.to_dict() if normalization_stats is not None else None,
+            "config": asdict(config),
+        },
+        last_checkpoint,
+    )
     total_runtime_seconds = time.perf_counter() - run_start_time
 
     summary = {
@@ -213,6 +227,8 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
         "checkpoints": {"best": best_checkpoint, "last": last_checkpoint},
         "model_name": config.model_name,
         "target_mode": config.dataset.preprocessing.target_mode,
+        "target_representation": config.dataset.preprocessing.target_representation,
+        "normalization_stats": normalization_stats.to_dict() if normalization_stats is not None else None,
         "runtime_seconds": total_runtime_seconds,
         "config": asdict(config),
     }

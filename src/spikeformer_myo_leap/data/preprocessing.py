@@ -10,7 +10,7 @@ from spikeformer_myo_leap.config import PreprocessingConfig
 
 from .loaders import load_emg_array, load_pose_array
 from .raw import EpisodePaths, load_episode_metadata
-from .transforms import make_wrist_relative_pose
+from .transforms import convert_pose_to_joint_angles, make_palm_frame_pose, make_wrist_relative_pose
 
 
 @dataclass
@@ -23,6 +23,7 @@ class PreprocessedEpisode:
     pose_timestamps_ms: NDArray[np.float32]
     pose: NDArray[np.float32]
     target_mode: str
+    target_representation: str
     metadata: dict[str, Any]
 
 
@@ -74,6 +75,10 @@ def preprocess_episode(
 
     if config.use_wrist_relative_pose and len(resampled_pose) > 0:
         resampled_pose = make_wrist_relative_pose(resampled_pose, config.target_mode)
+    if config.use_palm_frame_pose and len(resampled_pose) > 0:
+        resampled_pose = make_palm_frame_pose(resampled_pose, config.target_mode)
+    if config.target_representation == "joint_angles":
+        resampled_pose = convert_pose_to_joint_angles(resampled_pose, config.target_mode)
 
     return PreprocessedEpisode(
         episode_dir=episode_paths.root,
@@ -82,5 +87,6 @@ def preprocess_episode(
         pose_timestamps_ms=target_timestamps_ms,
         pose=resampled_pose,
         target_mode=config.target_mode,
+        target_representation=config.target_representation,
         metadata=metadata,
     )

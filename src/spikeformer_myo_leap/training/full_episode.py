@@ -211,7 +211,7 @@ def run_full_episode_validation(
         mae = float(mean_absolute_error(target_valid, pred_valid))
 
         visualization_path = None
-        if save_visualizations and episode.target_mode == "xyz":
+        if save_visualizations and episode.target_mode == "xyz" and episode.target_representation == "points":
             visualization_path = os.path.join(epoch_dir, f"episode_{episode_number:02d}.gif")
             save_episode_gif(
                 predictions=predictions,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import os
 from typing import Sequence
 
@@ -10,8 +10,15 @@ import torch
 from torch.utils.data import Dataset
 
 from spikeformer_myo_leap.config import PreprocessingConfig
-from spikeformer_myo_leap.data.preprocessing import PreprocessedEpisode, preprocess_episode
-from spikeformer_myo_leap.data.raw import EpisodePaths, list_episode_paths
+from spikeformer_myo_leap.data import (
+    DatasetNormalizationStats,
+    EpisodePaths,
+    PreprocessedEpisode,
+    apply_standardization,
+    fit_standardization,
+    list_episode_paths,
+    preprocess_episode,
+)
 
 
 @dataclass(frozen=True)
@@ -23,24 +30,31 @@ class WindowedSampleIndex:
 
 
 class WindowedPoseDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
-    """In-memory windowed EMG-to-pose dataset built from preprocessed episodes."""
+    """In-memory windowed EMG-to-target dataset built from preprocessed episodes."""
 
     def __init__(
         self,
-        episode_paths: Sequence[EpisodePaths],
+        episode_paths: Sequence[EpisodePaths] | None,
         preprocessing: PreprocessingConfig,
         window_size: int = 64,
         stride: int = 1,
+        episodes: Sequence[PreprocessedEpisode] | None = None,
+        normalization_stats: DatasetNormalizationStats | None = None,
     ) -> None:
-        self.episode_paths = list(episode_paths)
+        self.episode_paths = list(episode_paths or [])
         self.preprocessing = preprocessing
         self.window_size = window_size
         self.stride = stride
+        self.normalization_stats = normalization_stats
 
-        self.episodes: list[PreprocessedEpisode] = [
-            preprocess_episode(paths, preprocessing) for paths in self.episode_paths
-        ]
+        base_episodes = (
+            list(episodes)
+            if episodes is not None
+            else [preprocess_episode(paths, preprocessing) for paths in self.episode_paths]
+        )
+        self.episodes: list[PreprocessedEpisode] = apply_dataset_normalization(base_episodes, normalization_stats)
         self.indices: list[WindowedSampleIndex] = self._build_indices()
+        self.target_dim = self.episodes[0].pose.shape[1] if self.episodes else 0
 
     def _build_indices(self) -> list[WindowedSampleIndex]:
         """Build sample indices across all preprocessed episodes."""
@@ -60,12 +74,12 @@ class WindowedPoseDataset(Dataset[tuple[torch.Tensor, torch.Tensor]]):
         return len(self.indices)
 
     def __getitem__(self, index: int) -> tuple[torch.Tensor, torch.Tensor]:
-        """Return one EMG window and its aligned pose target."""
+        """Return one EMG window and its aligned target."""
 
         sample = self.indices[index]
         episode = self.episodes[sample.episode_index]
         start_index = sample.target_index - self.window_size
-        emg_window = episode.emg[start_index : sample.target_index]
+        emg_window = episode.emg[start_index:sample.target_index]
         pose_target = episode.pose[sample.target_index]
         return torch.from_numpy(emg_window), torch.from_numpy(pose_target)
 
@@ -84,12 +98,7 @@ def _normalize_include_paths(dataset_root: str, include_paths: Sequence[str]) ->
 
 
 def collect_episode_paths(dataset_root: str, include_paths: Sequence[str] | None = None) -> list[EpisodePaths]:
-    """Collect complete episode paths from ``dataset_root`` or an explicit include list.
-
-    When ``include_paths`` is empty, all complete episodes under ``dataset_root`` are used.
-    When ``include_paths`` is provided, each item may point to a higher-level subtree or directly
-    to an ``ep_XXXX`` episode directory.
-    """
+    """Collect complete episode paths from ``dataset_root`` or an explicit include list."""
 
     if not include_paths:
         return list_episode_paths(dataset_root)
@@ -121,20 +130,86 @@ def collect_episode_paths(dataset_root: str, include_paths: Sequence[str] | None
     return [episodes_by_root[root] for root in sorted(episodes_by_root)]
 
 
+def preprocess_episodes(
+    episode_paths: Sequence[EpisodePaths],
+    preprocessing: PreprocessingConfig,
+) -> list[PreprocessedEpisode]:
+    """Preprocess raw episode paths into aligned training-ready arrays."""
+
+    return [preprocess_episode(paths, preprocessing) for paths in episode_paths]
+
+
+def fit_dataset_normalization_stats(
+    episodes: Sequence[PreprocessedEpisode],
+    preprocessing: PreprocessingConfig,
+) -> DatasetNormalizationStats | None:
+    """Fit train-split standardization stats for EMG and model targets."""
+
+    use_emg = preprocessing.normalize_emg
+    use_targets = preprocessing.standardize_targets
+    if not use_emg and not use_targets:
+        return None
+
+    emg_mean, emg_std = fit_standardization([episode.emg for episode in episodes]) if use_emg else (None, None)
+    target_mean, target_std = (
+        fit_standardization([episode.pose for episode in episodes]) if use_targets else (None, None)
+    )
+    return DatasetNormalizationStats(
+        emg_mean=emg_mean,
+        emg_std=emg_std,
+        target_mean=target_mean,
+        target_std=target_std,
+    )
+
+
+def apply_dataset_normalization(
+    episodes: Sequence[PreprocessedEpisode],
+    normalization_stats: DatasetNormalizationStats | None,
+) -> list[PreprocessedEpisode]:
+    """Apply fitted standardization stats to preprocessed episodes."""
+
+    if normalization_stats is None:
+        return list(episodes)
+
+    normalized: list[PreprocessedEpisode] = []
+    for episode in episodes:
+        normalized.append(
+            replace(
+                episode,
+                emg=apply_standardization(
+                    episode.emg,
+                    normalization_stats.emg_mean,
+                    normalization_stats.emg_std,
+                ),
+                pose=apply_standardization(
+                    episode.pose,
+                    normalization_stats.target_mean,
+                    normalization_stats.target_std,
+                ),
+            )
+        )
+    return normalized
+
+
 def build_windowed_dataset(
     dataset_root: str,
     preprocessing: PreprocessingConfig,
     include_paths: Sequence[str] | None = None,
     window_size: int = 64,
     stride: int = 1,
+    normalization_stats: DatasetNormalizationStats | None = None,
 ) -> WindowedPoseDataset:
     """Build a windowed dataset from all complete episodes under ``dataset_root``."""
 
+    episode_paths = collect_episode_paths(dataset_root=dataset_root, include_paths=include_paths)
+    episodes = preprocess_episodes(episode_paths, preprocessing)
     return WindowedPoseDataset(
-        episode_paths=collect_episode_paths(dataset_root=dataset_root, include_paths=include_paths),
+        episode_paths=episode_paths,
         preprocessing=preprocessing,
         window_size=window_size,
         stride=stride,
+        episodes=episodes,
+        normalization_stats=normalization_stats,
     )
 
 
@@ -146,15 +221,15 @@ def build_dataset_splits(
     stride: int = 1,
     train_fraction: float = 0.8,
     seed: int = 42,
-) -> tuple[WindowedPoseDataset, WindowedPoseDataset, WindowedPoseDataset]:
+) -> tuple[WindowedPoseDataset, WindowedPoseDataset, WindowedPoseDataset, DatasetNormalizationStats | None]:
     """Build episode-disjoint train/validation splits from the windowed dataset.
 
-    The split happens at the episode level first, then window datasets are built from
-    the resulting disjoint episode lists. This avoids leakage where adjacent windows from
-    the same recorded episode end up in both train and validation sets.
+    The split happens at the episode level first, then train-split normalization
+    stats are fitted and applied consistently to train/val/full datasets.
     """
 
     episode_paths = collect_episode_paths(dataset_root=dataset_root, include_paths=include_paths)
+    episodes = preprocess_episodes(episode_paths, preprocessing)
     num_episodes = len(episode_paths)
     train_size = int(num_episodes * train_fraction)
     train_size = min(max(train_size, 1), max(num_episodes - 1, 1)) if num_episodes > 1 else num_episodes
@@ -165,23 +240,32 @@ def build_dataset_splits(
 
     train_episode_paths = [episode_paths[index] for index in train_indices]
     val_episode_paths = [episode_paths[index] for index in val_indices]
+    train_episodes = [episodes[index] for index in train_indices]
+    val_episodes = [episodes[index] for index in val_indices]
 
+    normalization_stats = fit_dataset_normalization_stats(train_episodes, preprocessing)
     full_dataset = WindowedPoseDataset(
         episode_paths=episode_paths,
         preprocessing=preprocessing,
         window_size=window_size,
         stride=stride,
+        episodes=episodes,
+        normalization_stats=normalization_stats,
     )
     train_dataset = WindowedPoseDataset(
         episode_paths=train_episode_paths,
         preprocessing=preprocessing,
         window_size=window_size,
         stride=stride,
+        episodes=train_episodes,
+        normalization_stats=normalization_stats,
     )
     val_dataset = WindowedPoseDataset(
         episode_paths=val_episode_paths,
         preprocessing=preprocessing,
         window_size=window_size,
         stride=stride,
+        episodes=val_episodes,
+        normalization_stats=normalization_stats,
     )
-    return full_dataset, train_dataset, val_dataset
+    return full_dataset, train_dataset, val_dataset, normalization_stats

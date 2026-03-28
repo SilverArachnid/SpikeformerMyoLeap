@@ -11,6 +11,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
+from spikeformer_myo_leap.data import DatasetNormalizationStats
 from spikeformer_myo_leap.models import create_model
 
 from .config import EvaluationConfig
@@ -26,12 +27,20 @@ def evaluate_model(config: EvaluationConfig) -> dict[str, Any]:
 
     start_time = time.perf_counter()
     device = resolve_device(config.device)
+    checkpoint_payload = torch.load(config.checkpoint_path, map_location=device)
+    if isinstance(checkpoint_payload, dict) and "model_state_dict" in checkpoint_payload:
+        state_dict = checkpoint_payload["model_state_dict"]
+        normalization_stats = DatasetNormalizationStats.from_dict(checkpoint_payload.get("normalization_stats"))
+    else:
+        state_dict = checkpoint_payload
+        normalization_stats = None
     dataset = build_windowed_dataset(
         dataset_root=config.dataset.dataset_root,
         preprocessing=config.dataset.preprocessing,
         include_paths=config.dataset.include_paths,
         window_size=config.dataset.window_size,
         stride=config.dataset.stride,
+        normalization_stats=normalization_stats,
     )
     data_loader = DataLoader(
         dataset,
@@ -41,9 +50,9 @@ def evaluate_model(config: EvaluationConfig) -> dict[str, Any]:
         pin_memory=torch.cuda.is_available(),
     )
 
-    output_dim = 63 if config.dataset.preprocessing.target_mode == "xyz" else 42
+    output_dim = dataset.target_dim
     model = create_model(config.model_name, output_dim=output_dim, **config.model_kwargs).to(device)
-    model.load_state_dict(torch.load(config.checkpoint_path, map_location=device))
+    model.load_state_dict(state_dict)
     model.eval()
 
     predictions: list[np.ndarray] = []
@@ -69,5 +78,6 @@ def evaluate_model(config: EvaluationConfig) -> dict[str, Any]:
         "mae": mae,
         "model_name": config.model_name,
         "target_mode": config.dataset.preprocessing.target_mode,
+        "target_representation": config.dataset.preprocessing.target_representation,
         "runtime_seconds": runtime_seconds,
     }
