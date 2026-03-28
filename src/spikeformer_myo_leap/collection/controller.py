@@ -543,17 +543,29 @@ class CollectionController:
             self._set_error(f"Save error: {exc}")
             return
 
+        # Count episodes and vibrate OUTSIDE the lock so the Myo receive loop is
+        # never stalled.  os.listdir + os.path.isdir calls and the BLE vibrate
+        # command can each take tens of milliseconds.  Holding self._lock during
+        # either blocks _handle_emg → blocks myo.run() → serial buffer overflows
+        # → Myo disconnects between episodes.
+        completed_episodes = self._count_completed_episodes()
+        with self._lock:
+            myo_ref = self._myo
+        if myo_ref is not None:
+            try:
+                myo_ref.vibrate(1)
+            except Exception:
+                pass
+
         with self._lock:
             self._last_episode_path = episode_path
-            self._refresh_session_counters()
+            self.runtime["completed_episodes"] = completed_episodes
+            self.runtime["current_episode_label"] = (
+                f"{completed_episodes} / {self.settings.episodes_per_session}"
+            )
             self.runtime["last_saved_episode"] = os.path.basename(episode_path)
             self.runtime["finalizing_episode"] = False
             self.runtime["status_message"] = f"Saved {os.path.basename(episode_path)}"
-            if self._myo is not None:
-                try:
-                    self._myo.vibrate(1)
-                except Exception:
-                    pass
             self._update_ready_state_locked()
             self.runtime["status_message"] = f"Saved {os.path.basename(episode_path)}"
             self._push_dashboard_status()
@@ -561,22 +573,38 @@ class CollectionController:
             print(f"[CollectionDebug] episode={episode_label} finalized_ready")
 
     def _save_current_episode(self, recording_end: float) -> str:
+        # Snapshot streams under the lock (fast: just copies deque item pointers),
+        # then release the lock before filtering and file I/O.  The old code ran
+        # the list comprehensions while holding self._lock, which blocked
+        # _handle_emg → blocked myo.run() for the full iteration of a 120-second
+        # retention window (up to ~24 k EMG samples).
         with self._lock:
             episode_number = self.runtime["completed_episodes"] + 1
             if self._recording_start is None:
                 raise ValueError("Recording start time is missing.")
             recording_start = self._recording_start
-            recorded_duration_seconds = max(0.0, recording_end - recording_start)
-            emg_data = self._collect_episode_samples_locked(self._emg_stream, recording_start, recording_end)
-            pose_data = self._collect_episode_samples_locked(self._pose_stream, recording_start, recording_end)
-            if DEBUG_COLLECTION_BOUNDARIES:
-                print(
-                    "[CollectionDebug] "
-                    f"episode=ep_{episode_number:04d} slice_complete "
-                    f"duration_s={recorded_duration_seconds:.3f} "
-                    f"emg_samples={len(emg_data)} pose_samples={len(pose_data)}"
-                )
+            emg_snapshot = list(self._emg_stream)
+            pose_snapshot = list(self._pose_stream)
             self._discard_current_episode_locked("", clear_finalizing=False)
+
+        recorded_duration_seconds = max(0.0, recording_end - recording_start)
+        emg_data = [
+            ((timestamp - recording_start) * 1000.0, *values)
+            for timestamp, values in emg_snapshot
+            if recording_start <= timestamp <= recording_end
+        ]
+        pose_data = [
+            ((timestamp - recording_start) * 1000.0, *values)
+            for timestamp, values in pose_snapshot
+            if recording_start <= timestamp <= recording_end
+        ]
+        if DEBUG_COLLECTION_BOUNDARIES:
+            print(
+                "[CollectionDebug] "
+                f"episode=ep_{episode_number:04d} slice_complete "
+                f"duration_s={recorded_duration_seconds:.3f} "
+                f"emg_samples={len(emg_data)} pose_samples={len(pose_data)}"
+            )
 
         self._validate_episode_capture(recorded_duration_seconds, emg_data, pose_data)
         episode_folder = save_episode(
@@ -669,17 +697,33 @@ class CollectionController:
             status_line=self.runtime["status_message"],
         )
 
-    def _refresh_session_counters(self) -> None:
+    def _count_completed_episodes(self) -> int:
+        """Count saved episode folders without holding the lock.
+
+        Safe to call from any thread when self._lock is NOT held.  The
+        filesystem work (os.listdir + os.path.isdir) must not run while the
+        lock is held, or it will stall _handle_emg and disconnect the Myo.
+        """
         root = self._pose_dir()
-        completed = 0
-        if os.path.isdir(root):
-            completed = len(
-                [
-                    name
-                    for name in os.listdir(root)
-                    if name.startswith("ep_") and os.path.isdir(os.path.join(root, name))
-                ]
-            )
+        if not os.path.isdir(root):
+            return 0
+        return len(
+            [
+                name
+                for name in os.listdir(root)
+                if name.startswith("ep_") and os.path.isdir(os.path.join(root, name))
+            ]
+        )
+
+    def _refresh_session_counters(self) -> None:
+        """Update completed-episode counters from disk.
+
+        Called from __init__, set_settings, and start_session — all
+        user-initiated, non-hot-path sites where brief filesystem I/O under
+        the lock is acceptable.  Do NOT call this from _record_episode_worker;
+        use _count_completed_episodes() outside the lock instead.
+        """
+        completed = self._count_completed_episodes()
         self.runtime["completed_episodes"] = completed
         self.runtime["current_episode_label"] = f"{completed} / {self.settings.episodes_per_session}"
 
