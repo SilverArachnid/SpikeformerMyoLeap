@@ -31,6 +31,8 @@ def main(cfg: DictConfig):
 
     fd = sys.stdin.fileno()
     old_settings = termios.tcgetattr(fd)
+    last_status_message = ""
+    last_aborted_episode = ""
 
     try:
         controller.connect()
@@ -50,6 +52,15 @@ def main(cfg: DictConfig):
 
         while True:
             snapshot = controller.get_status_snapshot()
+            if snapshot["status_message"] != last_status_message:
+                print(f"[Status] {snapshot['status_message']}")
+                last_status_message = snapshot["status_message"]
+            if snapshot["last_aborted_episode"] and snapshot["last_aborted_episode"] != last_aborted_episode:
+                print(
+                    f"[Recovery] {snapshot['last_aborted_episode']} was aborted. "
+                    "Waiting for healthy sensor streams before the next recording."
+                )
+                last_aborted_episode = snapshot["last_aborted_episode"]
             if snapshot["completed_episodes"] >= snapshot["episodes_per_session"] and not snapshot["recording"]:
                 print("Reached configured episode count. Ending session.")
                 break
@@ -61,8 +72,28 @@ def main(cfg: DictConfig):
                     print("\nQuitting...")
                     break
                 if char == " " and not snapshot["recording"]:
-                    print(f"\n[Episode {snapshot['completed_episodes'] + 1}/{snapshot['episodes_per_session']}] Recording started...")
-                    controller.start_episode()
+                    if snapshot.get("finalizing_episode"):
+                        print("\n[Status] Previous episode is still being saved. Please wait.")
+                        continue
+                    if not snapshot.get("myo_connected") or not snapshot.get("leap_connected"):
+                        print("\n[Status] Cannot record yet: both sensors must be connected.")
+                        continue
+                    if not snapshot.get("myo_streaming") or not snapshot.get("leap_streaming"):
+                        waiting = []
+                        if not snapshot.get("myo_streaming"):
+                            waiting.append("Myo")
+                        if not snapshot.get("leap_streaming"):
+                            waiting.append("Leap")
+                        print(f"\n[Status] Cannot record yet: waiting for healthy sensor data: {', '.join(waiting)}")
+                        continue
+                    try:
+                        print(
+                            f"\n[Episode {snapshot['completed_episodes'] + 1}/"
+                            f"{snapshot['episodes_per_session']}] Recording started..."
+                        )
+                        controller.start_episode()
+                    except RuntimeError as exc:
+                        print(f"\n[Status] Could not start recording: {exc}")
                 elif char.lower() == "s" and snapshot["recording"]:
                     print("\nStopping current episode early...")
                     controller.stop_episode()
