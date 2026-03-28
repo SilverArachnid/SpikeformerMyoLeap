@@ -63,6 +63,15 @@ def preprocess_episode(
 ) -> PreprocessedEpisode:
     """Load, resample, and normalize a single episode according to ``config``."""
 
+    if config.target_representation == "joint_angles":
+        if config.target_mode != "xyz":
+            raise ValueError("joint_angles target representation requires target_mode='xyz'.")
+        if config.use_palm_frame_pose:
+            raise ValueError(
+                "use_palm_frame_pose must be False when target_representation='joint_angles', "
+                "because joint-angle targets are already orientation-invariant."
+            )
+
     metadata = load_episode_metadata(episode_paths.meta_json)
     duration_seconds = float(metadata.get("recorded_duration_seconds", 0.0))
     target_timestamps_ms = build_target_timestamps(duration_seconds, config.resample_hz)

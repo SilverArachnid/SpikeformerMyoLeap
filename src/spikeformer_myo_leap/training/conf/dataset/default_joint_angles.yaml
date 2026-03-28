@@ -9,7 +9,7 @@ preprocessing:
   resample_hz: 100.0
   emg_window_size: 64
   use_wrist_relative_pose: true
-  use_palm_frame_pose: true
+  use_palm_frame_pose: false
   normalize_emg: true
   standardize_targets: true
   validate_episodes: true

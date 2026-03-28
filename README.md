@@ -79,6 +79,10 @@ This opens a dedicated dataset reviewer GUI for:
 - checking simple per-episode health indicators
 - deleting bad episodes with confirmation
 
+The reviewer is now config-backed as well. Current defaults:
+- `dataset_root=datasets`
+- `use_palm_frame_preview=true`
+
 7. Preprocessing smoke test:
 ```bash
 uv run preprocess_dataset.py
@@ -137,7 +141,7 @@ uv run train.py model=transformer dataset=user1_session2_test_pose num_epochs=1 
 
 Useful dataset presets:
 - `dataset=default`: `xyz` point targets with palm-frame normalization
-- `dataset=default_joint_angles`: `xyz` joint-angle targets
+- `dataset=default_joint_angles`: `xyz` joint-angle targets without palm-frame normalization
 - `dataset=default_xy_compat`: `xy` compatibility mode for older-style comparisons
 
 If `visualize: true` and `visualizer_backend: "local"` are enabled, the legacy collector uses the same local dashboard for:
@@ -263,3 +267,8 @@ The training/evaluation stack now also:
 - fits EMG and target normalization on the train split
 - reuses those stats for validation and checkpoint evaluation
 - stores normalization stats inside checkpoints for future evaluation/inference reuse
+
+Metric note:
+- training loss and best-validation loss remain the standardized-space MSE used for optimization
+- standalone evaluation RMSE/MAE and full-episode RMSE/MAE are reported after inverting target standardization, so they are back in the original target space
+- those two metric families are intentionally not directly comparable

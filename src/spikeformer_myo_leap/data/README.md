@@ -29,5 +29,8 @@ This folder owns the dataset contract, raw episode IO, dataset discovery, and pr
   - wrist
   - index MCP
   - pinky MCP
+- Palm-frame normalization is intended for point targets. It should be disabled for
+  `target_representation=joint_angles`, because joint-angle targets are already
+  orientation-invariant.
 - EMG standardization is fit on the train split and then reused for validation/evaluation.
 - Target standardization is also fit on the train split and applied consistently across train/val/eval.
