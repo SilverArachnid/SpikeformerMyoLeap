@@ -450,9 +450,12 @@ class CollectionController:
                     self._next_leap_reconnect_time = now + RECONNECT_RETRY_SECONDS
                     reconnect_leap = True
 
-            if reconnect_myo:
+            # Re-check stop before entering a blocking BLE/serial operation.
+            # disconnect() calls _stop_event.set() then connect() clears it;
+            # without this guard an orphaned watchdog re-fires after the clear.
+            if reconnect_myo and not self._stop_event.is_set():
                 self._attempt_myo_reconnect()
-            if reconnect_leap:
+            if reconnect_leap and not self._stop_event.is_set():
                 self._attempt_leap_reconnect()
 
     def _handle_emg(self, emg, movement) -> None:
@@ -543,29 +546,17 @@ class CollectionController:
             self._set_error(f"Save error: {exc}")
             return
 
-        # Count episodes and vibrate OUTSIDE the lock so the Myo receive loop is
-        # never stalled.  os.listdir + os.path.isdir calls and the BLE vibrate
-        # command can each take tens of milliseconds.  Holding self._lock during
-        # either blocks _handle_emg → blocks myo.run() → serial buffer overflows
-        # → Myo disconnects between episodes.
-        completed_episodes = self._count_completed_episodes()
-        with self._lock:
-            myo_ref = self._myo
-        if myo_ref is not None:
-            try:
-                myo_ref.vibrate(1)
-            except Exception:
-                pass
-
         with self._lock:
             self._last_episode_path = episode_path
-            self.runtime["completed_episodes"] = completed_episodes
-            self.runtime["current_episode_label"] = (
-                f"{completed_episodes} / {self.settings.episodes_per_session}"
-            )
+            self._refresh_session_counters()
             self.runtime["last_saved_episode"] = os.path.basename(episode_path)
             self.runtime["finalizing_episode"] = False
             self.runtime["status_message"] = f"Saved {os.path.basename(episode_path)}"
+            if self._myo is not None:
+                try:
+                    self._myo.vibrate(1)
+                except Exception:
+                    pass
             self._update_ready_state_locked()
             self.runtime["status_message"] = f"Saved {os.path.basename(episode_path)}"
             self._push_dashboard_status()
@@ -573,38 +564,22 @@ class CollectionController:
             print(f"[CollectionDebug] episode={episode_label} finalized_ready")
 
     def _save_current_episode(self, recording_end: float) -> str:
-        # Snapshot streams under the lock (fast: just copies deque item pointers),
-        # then release the lock before filtering and file I/O.  The old code ran
-        # the list comprehensions while holding self._lock, which blocked
-        # _handle_emg → blocked myo.run() for the full iteration of a 120-second
-        # retention window (up to ~24 k EMG samples).
         with self._lock:
             episode_number = self.runtime["completed_episodes"] + 1
             if self._recording_start is None:
                 raise ValueError("Recording start time is missing.")
             recording_start = self._recording_start
-            emg_snapshot = list(self._emg_stream)
-            pose_snapshot = list(self._pose_stream)
+            recorded_duration_seconds = max(0.0, recording_end - recording_start)
+            emg_data = self._collect_episode_samples_locked(self._emg_stream, recording_start, recording_end)
+            pose_data = self._collect_episode_samples_locked(self._pose_stream, recording_start, recording_end)
+            if DEBUG_COLLECTION_BOUNDARIES:
+                print(
+                    "[CollectionDebug] "
+                    f"episode=ep_{episode_number:04d} slice_complete "
+                    f"duration_s={recorded_duration_seconds:.3f} "
+                    f"emg_samples={len(emg_data)} pose_samples={len(pose_data)}"
+                )
             self._discard_current_episode_locked("", clear_finalizing=False)
-
-        recorded_duration_seconds = max(0.0, recording_end - recording_start)
-        emg_data = [
-            ((timestamp - recording_start) * 1000.0, *values)
-            for timestamp, values in emg_snapshot
-            if recording_start <= timestamp <= recording_end
-        ]
-        pose_data = [
-            ((timestamp - recording_start) * 1000.0, *values)
-            for timestamp, values in pose_snapshot
-            if recording_start <= timestamp <= recording_end
-        ]
-        if DEBUG_COLLECTION_BOUNDARIES:
-            print(
-                "[CollectionDebug] "
-                f"episode=ep_{episode_number:04d} slice_complete "
-                f"duration_s={recorded_duration_seconds:.3f} "
-                f"emg_samples={len(emg_data)} pose_samples={len(pose_data)}"
-            )
 
         self._validate_episode_capture(recorded_duration_seconds, emg_data, pose_data)
         episode_folder = save_episode(
@@ -697,33 +672,17 @@ class CollectionController:
             status_line=self.runtime["status_message"],
         )
 
-    def _count_completed_episodes(self) -> int:
-        """Count saved episode folders without holding the lock.
-
-        Safe to call from any thread when self._lock is NOT held.  The
-        filesystem work (os.listdir + os.path.isdir) must not run while the
-        lock is held, or it will stall _handle_emg and disconnect the Myo.
-        """
-        root = self._pose_dir()
-        if not os.path.isdir(root):
-            return 0
-        return len(
-            [
-                name
-                for name in os.listdir(root)
-                if name.startswith("ep_") and os.path.isdir(os.path.join(root, name))
-            ]
-        )
-
     def _refresh_session_counters(self) -> None:
-        """Update completed-episode counters from disk.
-
-        Called from __init__, set_settings, and start_session — all
-        user-initiated, non-hot-path sites where brief filesystem I/O under
-        the lock is acceptable.  Do NOT call this from _record_episode_worker;
-        use _count_completed_episodes() outside the lock instead.
-        """
-        completed = self._count_completed_episodes()
+        root = self._pose_dir()
+        completed = 0
+        if os.path.isdir(root):
+            completed = len(
+                [
+                    name
+                    for name in os.listdir(root)
+                    if name.startswith("ep_") and os.path.isdir(os.path.join(root, name))
+                ]
+            )
         self.runtime["completed_episodes"] = completed
         self.runtime["current_episode_label"] = f"{completed} / {self.settings.episodes_per_session}"
 
@@ -785,9 +744,24 @@ class CollectionController:
             self._push_dashboard_status()
 
     def _attempt_myo_reconnect(self) -> None:
+        # Guard: bail out if disconnect() was called while the watchdog had
+        # already decided to reconnect (hardware_running=False) or if a new
+        # connect() cycle has started and cleared _stop_event for a fresh
+        # session — either way we must not create an orphaned Myo object.
+        if self._stop_event.is_set():
+            return
+        with self._lock:
+            if not self.runtime["hardware_running"]:
+                return
         print("[CollectionDebug] reconnect_attempt sensor=myo")
         try:
             self._cleanup_myo()
+            # Check again: disconnect() may have fired while _cleanup_myo ran.
+            if self._stop_event.is_set():
+                return
+            with self._lock:
+                if not self.runtime["hardware_running"]:
+                    return
             self._connect_myo()
         except Exception as exc:
             with self._lock:
@@ -799,6 +773,11 @@ class CollectionController:
             print("[CollectionDebug] reconnect_succeeded sensor=myo")
 
     def _attempt_leap_reconnect(self) -> None:
+        if self._stop_event.is_set():
+            return
+        with self._lock:
+            if not self.runtime["hardware_running"]:
+                return
         print("[CollectionDebug] reconnect_attempt sensor=leap")
         try:
             self._start_leap_thread()

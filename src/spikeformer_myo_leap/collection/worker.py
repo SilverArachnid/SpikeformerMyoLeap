@@ -166,7 +166,10 @@ class CollectionWorkerClient:
         self._call("set_settings", asdict(settings))
 
     def connect(self) -> None:
-        self._call("connect")
+        # pyomyo BLE discovery can take 10-15 s after a recent disconnect;
+        # the default 5 s timeout is not enough and causes the "Timed out
+        # waiting for worker command: connect" popup.
+        self._call("connect", timeout=30.0)
 
     def disconnect(self) -> None:
         self._call("disconnect")
