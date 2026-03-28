@@ -450,9 +450,12 @@ class CollectionController:
                     self._next_leap_reconnect_time = now + RECONNECT_RETRY_SECONDS
                     reconnect_leap = True
 
-            if reconnect_myo:
+            # Re-check stop before entering a blocking BLE/serial operation.
+            # disconnect() calls _stop_event.set() then connect() clears it;
+            # without this guard an orphaned watchdog re-fires after the clear.
+            if reconnect_myo and not self._stop_event.is_set():
                 self._attempt_myo_reconnect()
-            if reconnect_leap:
+            if reconnect_leap and not self._stop_event.is_set():
                 self._attempt_leap_reconnect()
 
     def _handle_emg(self, emg, movement) -> None:
@@ -741,9 +744,24 @@ class CollectionController:
             self._push_dashboard_status()
 
     def _attempt_myo_reconnect(self) -> None:
+        # Guard: bail out if disconnect() was called while the watchdog had
+        # already decided to reconnect (hardware_running=False) or if a new
+        # connect() cycle has started and cleared _stop_event for a fresh
+        # session — either way we must not create an orphaned Myo object.
+        if self._stop_event.is_set():
+            return
+        with self._lock:
+            if not self.runtime["hardware_running"]:
+                return
         print("[CollectionDebug] reconnect_attempt sensor=myo")
         try:
             self._cleanup_myo()
+            # Check again: disconnect() may have fired while _cleanup_myo ran.
+            if self._stop_event.is_set():
+                return
+            with self._lock:
+                if not self.runtime["hardware_running"]:
+                    return
             self._connect_myo()
         except Exception as exc:
             with self._lock:
@@ -755,6 +773,11 @@ class CollectionController:
             print("[CollectionDebug] reconnect_succeeded sensor=myo")
 
     def _attempt_leap_reconnect(self) -> None:
+        if self._stop_event.is_set():
+            return
+        with self._lock:
+            if not self.runtime["hardware_running"]:
+                return
         print("[CollectionDebug] reconnect_attempt sensor=leap")
         try:
             self._start_leap_thread()
