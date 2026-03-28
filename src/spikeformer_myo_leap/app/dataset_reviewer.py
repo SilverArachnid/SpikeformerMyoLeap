@@ -8,8 +8,10 @@ import sys
 
 from PySide6 import QtCore, QtGui, QtWidgets
 
+from spikeformer_myo_leap.config import DatasetReviewerConfig
 from spikeformer_myo_leap.data.contracts import HAND_CONNECTIONS
 from spikeformer_myo_leap.data.raw import list_episode_paths, load_episode
+from spikeformer_myo_leap.data.transforms import make_palm_frame_pose, reshape_pose_values
 
 
 class HandPreviewWidget(QtWidgets.QWidget):
@@ -133,9 +135,10 @@ class EmgPreviewWidget(QtWidgets.QWidget):
 class DatasetReviewerWindow(QtWidgets.QMainWindow):
     """Desktop tool for browsing, replaying, and deleting saved episodes."""
 
-    def __init__(self):
+    def __init__(self, config: DatasetReviewerConfig | None = None):
         super().__init__()
-        self.dataset_root = "datasets"
+        self.config = config or DatasetReviewerConfig()
+        self.dataset_root = self.config.dataset_root
         self.episodes = []
         self.current_episode = None
         self.current_emg_samples = []
@@ -348,10 +351,12 @@ class DatasetReviewerWindow(QtWidgets.QMainWindow):
 
         pose_columns = [column for column in pose_frame.columns if column != "Timestamp_ms"]
         self.current_pose_timestamps = pose_frame["Timestamp_ms"].astype(float).tolist()
-        self.current_pose_frames = []
-        for _, row in pose_frame.iterrows():
-            values = [float(row[column]) for column in pose_columns]
-            self.current_pose_frames.append([values[idx : idx + 3] for idx in range(0, len(values), 3)])
+        pose_values = pose_frame[pose_columns].to_numpy(dtype=float)
+        target_mode = self._infer_pose_target_mode(pose_values.shape[1])
+        if self.config.use_palm_frame_preview and target_mode == "xyz":
+            pose_values = make_palm_frame_pose(pose_values.astype("float32"), "xyz")
+        pose_frames = reshape_pose_values(pose_values.astype("float32"), target_mode)
+        self.current_pose_frames = [frame.tolist() for frame in pose_frames]
 
         emg_columns = [column for column in emg_frame.columns if column != "Timestamp_ms"]
         self.current_emg_samples = [
@@ -397,6 +402,19 @@ class DatasetReviewerWindow(QtWidgets.QMainWindow):
         self.health_label.setText(" | ".join(health_bits))
 
         self.update_playback_frame(0)
+
+    @staticmethod
+    def _infer_pose_target_mode(feature_dim: int) -> str:
+        """Infer whether a saved pose sequence is ``xy`` or ``xyz`` encoded."""
+
+        if feature_dim == 63:
+            return "xyz"
+        if feature_dim == 42:
+            return "xy"
+        raise ValueError(
+            "Unsupported pose dimensionality in dataset reviewer. "
+            f"Expected 42 (xy) or 63 (xyz) features, received {feature_dim}."
+        )
 
     def toggle_playback(self):
         if not self.current_pose_frames:
@@ -456,10 +474,10 @@ class DatasetReviewerWindow(QtWidgets.QMainWindow):
         self.refresh_episode_list()
 
 
-def main():
+def main(config: DatasetReviewerConfig | None = None):
     app = QtWidgets.QApplication(sys.argv)
     app.setStyle("Fusion")
-    window = DatasetReviewerWindow()
+    window = DatasetReviewerWindow(config=config)
     window.show()
     sys.exit(app.exec())
 

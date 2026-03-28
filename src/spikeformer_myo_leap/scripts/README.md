@@ -10,6 +10,6 @@ This folder contains thin package entry points for user-facing commands.
 - `visualize_leap.py`: Launches the Leap visualizer.
 - `visualize_myo.py`: Launches the Myo visualizer.
 - `preprocess_dataset.py`: Small preprocessing entry point for manifest and dataset-pipeline checks.
-- `replay_dataset.py`: Launches the dataset reviewer GUI for replaying and curating saved episodes.
+- `replay_dataset.py`: Launches the dataset reviewer GUI for replaying and curating saved episodes, using a small Hydra config for dataset root and preview mode.
 - `train.py`: Hydra-backed training entry point for packaged model training.
 - `evaluate.py`: Hydra-backed checkpoint evaluation entry point for packaged models.
