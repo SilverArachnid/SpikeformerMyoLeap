@@ -135,6 +135,11 @@ You can combine those with dataset or optimization overrides, for example:
 uv run train.py model=transformer dataset=user1_session2_test_pose num_epochs=1 device=cpu
 ```
 
+Useful dataset presets:
+- `dataset=default`: `xyz` point targets with palm-frame normalization
+- `dataset=default_joint_angles`: `xyz` joint-angle targets
+- `dataset=default_xy_compat`: `xy` compatibility mode for older-style comparisons
+
 If `visualize: true` and `visualizer_backend: "local"` are enabled, the legacy collector uses the same local dashboard for:
 - tracked 3D Leap hand pose
 - rolling 8-channel EMG traces

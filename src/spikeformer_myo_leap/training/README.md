@@ -29,3 +29,7 @@ This folder contains the training-facing dataset adapters, config objects, and t
 - Training and evaluation now print progress bars, epoch summaries, and runtime information so long-running jobs are visible from the terminal.
 - Training also supports full-episode validation on held-out episodes, with optional GIF visualizations saved every `N` epochs.
 - Checkpoints now store normalization statistics so evaluation can apply the same feature scaling as training.
+- Useful Hydra presets now include:
+  - `dataset=default` for 3D point regression
+  - `dataset=default_joint_angles` for 3D angle regression
+  - `dataset=default_xy_compat` for old-style 2D compatibility runs
