@@ -1,16 +1,15 @@
 dataset_root: datasets
-include_paths:
-  - user_1/session_2/test_pose
+include_paths: []
 window_size: 64
-stride: 8
+stride: 1
 preprocessing:
   dataset_root: datasets
   target_mode: xyz
-  target_representation: points
+  target_representation: joint_angles
   resample_hz: 100.0
   emg_window_size: 64
   use_wrist_relative_pose: true
-  use_palm_frame_pose: true
+  use_palm_frame_pose: false
   normalize_emg: true
   standardize_targets: true
   validate_episodes: true

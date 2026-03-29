@@ -9,6 +9,9 @@ Version 2 of the SpikeformerMyo project. This repository contains a standalone, 
 - **Package Entry Points**: Runnable script entry points now live under `src/spikeformer_myo_leap/scripts/`, while top-level scripts remain compatibility wrappers.
 - **Professional Local Visualizers**: Dark-mode desktop dashboards for Leap-only, Myo-only, and full collection monitoring.
 - **Desktop Collection UI**: A `PySide6` collection console for subject/session/pose setup, session control, and guided episode recording.
+- **Embedded Live Preview**: The collection GUI now includes native in-window Leap hand and Myo EMG previews instead of spawning a second dashboard window.
+- **Collector Recovery**: Inter-episode save/finalization, stream-health monitoring, and reconnect handling have been hardened for Myo/Leap faults.
+- **Dataset Reviewer**: A separate desktop reviewer can replay saved episodes, inspect health metadata, and delete bad takes.
 - **Optional Rerun Path**: Rerun remains available as an optional backend, but the default workflow now avoids its Linux GPU issues.
 
 See [Project Summary](docs/PROJECT_SUMMARY.md) for the longer architecture and roadmap notes.
@@ -57,7 +60,8 @@ This is now the primary collection workflow. It provides:
 - record next episode
 - stop recording early
 - session-aware save paths
-- the existing local dark-mode visualization dashboard in a separate window
+- embedded live Leap hand and Myo EMG previews
+- worker-backed hardware control so the GUI stays isolated from the sensor process
 
 5. Legacy terminal collector (fallback only):
 ```bash
@@ -65,13 +69,27 @@ uv run leap_myo_data_collection.py
 ```
 Press `Space` to record the next episode, `s` to stop early and save, and `Esc` or `q` to quit.
 
-6. Preprocessing smoke test:
+6. Review saved data:
+```bash
+uv run replay_dataset.py
+```
+This opens a dedicated dataset reviewer GUI for:
+- browsing saved episodes under a dataset root
+- replaying Leap pose and rolling EMG
+- checking simple per-episode health indicators
+- deleting bad episodes with confirmation
+
+The reviewer is now config-backed as well. Current defaults:
+- `dataset_root=datasets`
+- `use_palm_frame_preview=true`
+
+7. Preprocessing smoke test:
 ```bash
 uv run preprocess_dataset.py
 ```
 This currently validates that the preprocessing stack can discover the dataset and build an episode manifest from the saved collection layout.
 
-7. Training and evaluation entry points:
+8. Training and evaluation entry points:
 ```bash
 uv run train.py
 uv run evaluate.py
@@ -121,6 +139,11 @@ You can combine those with dataset or optimization overrides, for example:
 uv run train.py model=transformer dataset=user1_session2_test_pose num_epochs=1 device=cpu
 ```
 
+Useful dataset presets:
+- `dataset=default`: `xyz` point targets with palm-frame normalization
+- `dataset=default_joint_angles`: `xyz` joint-angle targets without palm-frame normalization
+- `dataset=default_xy_compat`: `xy` compatibility mode for older-style comparisons
+
 If `visualize: true` and `visualizer_backend: "local"` are enabled, the legacy collector uses the same local dashboard for:
 - tracked 3D Leap hand pose
 - rolling 8-channel EMG traces
@@ -145,6 +168,25 @@ Each episode contains:
 
 These are derived from the actual captured sample counts and recorded duration, and should be used later during data cleaning and resampling rather than assuming a fixed acquisition rate.
 
+## Collection Status
+
+The collection stack now includes the following robustness improvements:
+- stream-health monitoring for Myo and Leap
+- abort/discard behavior for affected recordings instead of silently saving bad takes
+- explicit episode finalization handling so the next episode cannot start before save completes
+- continuous stream buffering for episode slicing instead of direct callback-owned episode buffers
+- Myo reconnect cleanup after device/port faults
+- a worker-backed GUI path so hardware/control failures do not directly freeze the Qt window
+
+The terminal collector remains useful as a fallback path:
+- `uv run leap_myo_data_collection.py`
+
+The GUI path is now intended to be the main operator workflow:
+- `uv run collection_gui.py`
+
+Known caveat:
+- the Myo device/serial layer can still fault after several episodes on some setups; the code now handles that more gracefully, but the underlying transport is not guaranteed stable in all cases.
+
 ## Code Layout
 
 The current working code is now organized as an importable package:
@@ -163,7 +205,7 @@ src/spikeformer_myo_leap/
 
 Current responsibilities:
 - `app/`: desktop GUI entry logic
-- `collection/`: hardware lifecycle, recording controller, terminal collector wrapper
+- `collection/`: hardware lifecycle, recording controller, terminal collector wrapper, and GUI worker client
 - `config/`: preprocessing and future training configuration objects
 - `data/`: shared contracts, save/load helpers, raw episode discovery, manifests, loaders, and preprocessing
 - `models/`: Spikeformer, Transformer, CNN-LSTM, CNN, and spiking CNN regressors
@@ -183,6 +225,50 @@ The preprocessing branch is now adding the first dedicated data-pipeline modules
 - raw dataset discovery utilities via `spikeformer_myo_leap.data.raw`
 - episode manifest building via `spikeformer_myo_leap.data.manifest`
 - array loaders via `spikeformer_myo_leap.data.loaders`
-- resampling and wrist-relative pose transforms via `spikeformer_myo_leap.data.preprocessing` and `spikeformer_myo_leap.data.transforms`
+- resampling and pose transforms via `spikeformer_myo_leap.data.preprocessing` and `spikeformer_myo_leap.data.transforms`
+
+Current preprocessing options now include:
+- EMG standardization using train-split channel statistics
+- wrist-relative pose translation
+- palm-frame rotation normalization using:
+  - wrist
+  - index MCP
+  - pinky MCP
+- configurable target representations:
+  - `points` for direct joint-coordinate regression
+  - `joint_angles` for per-finger articulation-angle regression
+
+Recommended defaults for the current Leap+Myo setup:
+- `target_mode=xyz`
+- `target_representation=points` for the first baseline
+- `use_palm_frame_pose=true`
+- `normalize_emg=true`
+- `standardize_targets=true`
 
 That means the next preprocessing/training work can be built on stable importable interfaces instead of adding more logic into top-level scripts.
+
+## Training Status
+
+The repo now also includes the first packaged training/evaluation foundation:
+- separate model files for:
+  - Spikeformer
+  - Transformer
+  - CNN-LSTM
+  - CNN
+  - spiking CNN
+- Hydra-backed `train.py` and `evaluate.py`
+- episode-level train/val split
+- window-level validation each epoch
+- full-episode validation with saved qualitative outputs
+
+This is sufficient for baseline training runs, but model comparison, normalization refinements, and streaming inference remain follow-up work.
+
+The training/evaluation stack now also:
+- fits EMG and target normalization on the train split
+- reuses those stats for validation and checkpoint evaluation
+- stores normalization stats inside checkpoints for future evaluation/inference reuse
+
+Metric note:
+- training loss and best-validation loss remain the standardized-space MSE used for optimization
+- standalone evaluation RMSE/MAE and full-episode RMSE/MAE are reported after inverting target standardization, so they are back in the original target space
+- those two metric families are intentionally not directly comparable

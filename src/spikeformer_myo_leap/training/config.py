@@ -82,9 +82,13 @@ def build_preprocessing_config(data: Mapping[str, Any]) -> PreprocessingConfig:
     return PreprocessingConfig(
         dataset_root=str(data.get("dataset_root", "datasets")),
         target_mode=str(data.get("target_mode", "xyz")),
+        target_representation=str(data.get("target_representation", "points")),
         resample_hz=float(data.get("resample_hz", 100.0)),
         emg_window_size=int(data.get("emg_window_size", 64)),
         use_wrist_relative_pose=bool(data.get("use_wrist_relative_pose", True)),
+        use_palm_frame_pose=bool(data.get("use_palm_frame_pose", True)),
+        normalize_emg=bool(data.get("normalize_emg", True)),
+        standardize_targets=bool(data.get("standardize_targets", True)),
         validate_episodes=bool(data.get("validate_episodes", True)),
     )
 

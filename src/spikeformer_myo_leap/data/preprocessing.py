@@ -10,7 +10,7 @@ from spikeformer_myo_leap.config import PreprocessingConfig
 
 from .loaders import load_emg_array, load_pose_array
 from .raw import EpisodePaths, load_episode_metadata
-from .transforms import make_wrist_relative_pose
+from .transforms import convert_pose_to_joint_angles, make_palm_frame_pose, make_wrist_relative_pose
 
 
 @dataclass
@@ -23,6 +23,7 @@ class PreprocessedEpisode:
     pose_timestamps_ms: NDArray[np.float32]
     pose: NDArray[np.float32]
     target_mode: str
+    target_representation: str
     metadata: dict[str, Any]
 
 
@@ -62,6 +63,15 @@ def preprocess_episode(
 ) -> PreprocessedEpisode:
     """Load, resample, and normalize a single episode according to ``config``."""
 
+    if config.target_representation == "joint_angles":
+        if config.target_mode != "xyz":
+            raise ValueError("joint_angles target representation requires target_mode='xyz'.")
+        if config.use_palm_frame_pose:
+            raise ValueError(
+                "use_palm_frame_pose must be False when target_representation='joint_angles', "
+                "because joint-angle targets are already orientation-invariant."
+            )
+
     metadata = load_episode_metadata(episode_paths.meta_json)
     duration_seconds = float(metadata.get("recorded_duration_seconds", 0.0))
     target_timestamps_ms = build_target_timestamps(duration_seconds, config.resample_hz)
@@ -74,6 +84,10 @@ def preprocess_episode(
 
     if config.use_wrist_relative_pose and len(resampled_pose) > 0:
         resampled_pose = make_wrist_relative_pose(resampled_pose, config.target_mode)
+    if config.use_palm_frame_pose and len(resampled_pose) > 0:
+        resampled_pose = make_palm_frame_pose(resampled_pose, config.target_mode)
+    if config.target_representation == "joint_angles":
+        resampled_pose = convert_pose_to_joint_angles(resampled_pose, config.target_mode)
 
     return PreprocessedEpisode(
         episode_dir=episode_paths.root,
@@ -82,5 +96,6 @@ def preprocess_episode(
         pose_timestamps_ms=target_timestamps_ms,
         pose=resampled_pose,
         target_mode=config.target_mode,
+        target_representation=config.target_representation,
         metadata=metadata,
     )

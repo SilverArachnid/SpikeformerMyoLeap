@@ -16,7 +16,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error
 import torch
 from torch import nn
 
-from spikeformer_myo_leap.data import HAND_CONNECTIONS
+from spikeformer_myo_leap.data import DatasetNormalizationStats, HAND_CONNECTIONS, invert_standardization
 from spikeformer_myo_leap.data.preprocessing import PreprocessedEpisode
 
 
@@ -180,6 +180,7 @@ def run_full_episode_validation(
     epoch_index: int,
     config: dict[str, object],
     reset_model_state: callable,
+    normalization_stats: DatasetNormalizationStats | None = None,
 ) -> list[FullEpisodeValidationResult]:
     """Evaluate a fixed subset of held-out episodes and optionally save GIFs."""
 
@@ -205,17 +206,31 @@ def run_full_episode_validation(
             device=device,
             reset_model_state=reset_model_state,
         )
-        pred_valid = predictions[valid_mask]
-        target_valid = targets[valid_mask]
+        metric_predictions = predictions
+        metric_targets = targets
+        if normalization_stats is not None and normalization_stats.has_target_stats():
+            metric_predictions = invert_standardization(
+                predictions,
+                normalization_stats.target_mean,
+                normalization_stats.target_std,
+            )
+            metric_targets = invert_standardization(
+                targets,
+                normalization_stats.target_mean,
+                normalization_stats.target_std,
+            )
+
+        pred_valid = metric_predictions[valid_mask]
+        target_valid = metric_targets[valid_mask]
         rmse = float(np.sqrt(mean_squared_error(target_valid, pred_valid)))
         mae = float(mean_absolute_error(target_valid, pred_valid))
 
         visualization_path = None
-        if save_visualizations and episode.target_mode == "xyz":
+        if save_visualizations and episode.target_mode == "xyz" and episode.target_representation == "points":
             visualization_path = os.path.join(epoch_dir, f"episode_{episode_number:02d}.gif")
             save_episode_gif(
-                predictions=predictions,
-                targets=targets,
+                predictions=metric_predictions,
+                targets=metric_targets,
                 valid_mask=valid_mask,
                 output_path=visualization_path,
                 target_mode=episode.target_mode,
