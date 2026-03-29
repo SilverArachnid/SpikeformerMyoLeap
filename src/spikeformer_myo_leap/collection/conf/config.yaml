@@ -7,6 +7,7 @@ subject_id: "user_1" # Subject or session identifier
 session_name: "session_1" # Session identifier for grouping episodes under a single collection run
 pose_name: "test_pose" # Name of the pose/activity being recorded
 save_dir: "datasets" # Root directory where episodes are saved
+recording_mode: "episodic" # "episodic" to save each take immediately, "continuous" to record one long block and split it at the end
 
 # Visualization
 visualize: true # True to show a live viewer during data collection

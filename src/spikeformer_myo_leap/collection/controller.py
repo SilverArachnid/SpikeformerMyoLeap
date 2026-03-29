@@ -24,6 +24,8 @@ MIN_EFFECTIVE_HZ = 5.0
 STREAM_RETENTION_SECONDS = 120.0
 RECONNECT_RETRY_SECONDS = 2.0
 DEBUG_COLLECTION_BOUNDARIES = True
+RECORDING_MODE_EPISODIC = "episodic"
+RECORDING_MODE_CONTINUOUS = "continuous"
 
 
 def extract_hand_points(hand) -> np.ndarray:
@@ -98,6 +100,8 @@ class CollectionController:
         self._emg_stream: deque[tuple[float, tuple[float, ...]]] = deque()
         self._pose_stream: deque[tuple[float, tuple[float, ...]]] = deque()
         self._recording_start: float | None = None
+        self._recording_base_episode_number: int | None = None
+        self._planned_episode_count = 1
         self._last_episode_path: str | None = None
         self._last_emg_sample_time: float | None = None
         self._last_pose_sample_time: float | None = None
@@ -279,8 +283,15 @@ class CollectionController:
                 raise RuntimeError("Wait until both Myo and Leap data streams are healthy before recording.")
             if self.runtime["completed_episodes"] >= self.settings.episodes_per_session:
                 raise RuntimeError("This session already reached the configured episode count.")
+            if self.settings.recording_mode not in {RECORDING_MODE_EPISODIC, RECORDING_MODE_CONTINUOUS}:
+                raise RuntimeError(
+                    f"Unsupported recording_mode={self.settings.recording_mode!r}. "
+                    f"Expected {RECORDING_MODE_EPISODIC!r} or {RECORDING_MODE_CONTINUOUS!r}."
+                )
 
             self._recording_start = time.perf_counter()
+            self._recording_base_episode_number = self.runtime["completed_episodes"] + 1
+            self._planned_episode_count = self._remaining_episode_slots_locked()
             self._record_stop_event.clear()
             self._record_abort_event.clear()
             self._record_abort_reason = ""
@@ -289,7 +300,7 @@ class CollectionController:
             self.runtime["mode"] = "Recording"
             self.runtime["sample_count_emg"] = 0
             self.runtime["sample_count_pose"] = 0
-            self.runtime["status_message"] = "Capturing synchronized Leap pose and Myo EMG"
+            self.runtime["status_message"] = self._recording_status_message_locked(initial=True)
             self._push_dashboard_status()
 
         self._record_thread = threading.Thread(target=self._record_episode_worker, daemon=True)
@@ -495,8 +506,9 @@ class CollectionController:
             self._push_dashboard_status()
 
     def _record_episode_worker(self) -> None:
-        duration = self.settings.episode_duration
+        duration = self.settings.episode_duration * self._planned_episode_count
         start = self._recording_start
+        next_progress_update = 0.0
         while (
             not self._stop_event.is_set()
             and not self._record_stop_event.is_set()
@@ -504,6 +516,14 @@ class CollectionController:
             and start is not None
             and time.perf_counter() - start < duration
         ):
+            if self.settings.recording_mode == RECORDING_MODE_CONTINUOUS:
+                elapsed = time.perf_counter() - start
+                if elapsed >= next_progress_update:
+                    next_progress_update = elapsed + 0.25
+                    with self._lock:
+                        if self.runtime["recording"]:
+                            self.runtime["status_message"] = self._recording_status_message_locked(initial=False)
+                            self._push_dashboard_status()
             time.sleep(0.01)
 
         with self._lock:
@@ -511,13 +531,13 @@ class CollectionController:
             shutting_down = self._stop_event.is_set()
             self.runtime["recording"] = False
             self.runtime["finalizing_episode"] = not (abort_reason or shutting_down)
-            episode_label = self._next_episode_name_locked()
+            episode_label = self._planned_episode_label_locked()
             if abort_reason or shutting_down:
                 self.runtime["mode"] = "Recovering" if not shutting_down else "Disconnected"
                 self.runtime["status_message"] = abort_reason or "Recording aborted during shutdown"
             else:
                 self.runtime["mode"] = "Saving"
-                self.runtime["status_message"] = "Writing episode files to disk"
+                self.runtime["status_message"] = self._saving_status_message_locked()
             self._push_dashboard_status()
 
         if DEBUG_COLLECTION_BOUNDARIES:
@@ -539,33 +559,45 @@ class CollectionController:
         try:
             if DEBUG_COLLECTION_BOUNDARIES:
                 print(f"[CollectionDebug] episode={episode_label} save_started")
-            episode_path = self._save_current_episode(time.perf_counter())
+            episode_paths, trailing_note = self._save_current_capture(time.perf_counter())
             if DEBUG_COLLECTION_BOUNDARIES:
-                print(f"[CollectionDebug] episode={episode_label} save_finished path={episode_path}")
+                print(f"[CollectionDebug] episode={episode_label} save_finished path={episode_paths[-1]}")
         except Exception as exc:
             self._set_error(f"Save error: {exc}")
             return
 
         with self._lock:
-            self._last_episode_path = episode_path
+            self._last_episode_path = episode_paths[-1]
             self._refresh_session_counters()
-            self.runtime["last_saved_episode"] = os.path.basename(episode_path)
+            self.runtime["last_saved_episode"] = self._saved_episode_label(episode_paths)
             self.runtime["finalizing_episode"] = False
-            self.runtime["status_message"] = f"Saved {os.path.basename(episode_path)}"
+            saved_message = f"Saved {self.runtime['last_saved_episode']}"
+            if trailing_note:
+                saved_message = f"{saved_message}. {trailing_note}"
+            self.runtime["status_message"] = saved_message
             if self._myo is not None:
                 try:
                     self._myo.vibrate(1)
                 except Exception:
                     pass
             self._update_ready_state_locked()
-            self.runtime["status_message"] = f"Saved {os.path.basename(episode_path)}"
+            self.runtime["status_message"] = saved_message
             self._push_dashboard_status()
         if DEBUG_COLLECTION_BOUNDARIES:
             print(f"[CollectionDebug] episode={episode_label} finalized_ready")
 
-    def _save_current_episode(self, recording_end: float) -> str:
+    def _save_current_capture(self, recording_end: float) -> tuple[list[str], str | None]:
+        """Save the current recording according to the active collection mode."""
+
+        if self.settings.recording_mode == RECORDING_MODE_CONTINUOUS:
+            return self._save_continuous_capture(recording_end)
+        return [self._save_single_episode(recording_end)], None
+
+    def _save_single_episode(self, recording_end: float) -> str:
+        """Save one classic episodic capture immediately."""
+
         with self._lock:
-            episode_number = self.runtime["completed_episodes"] + 1
+            episode_number = self._recording_base_episode_number or (self.runtime["completed_episodes"] + 1)
             if self._recording_start is None:
                 raise ValueError("Recording start time is missing.")
             recording_start = self._recording_start
@@ -592,6 +624,74 @@ class CollectionController:
         )
         return episode_folder
 
+    def _save_continuous_capture(self, recording_end: float) -> tuple[list[str], str | None]:
+        """Split one long continuous recording into fixed-duration episode files.
+
+        The user records one uninterrupted block. At save time we segment the block
+        into ``episode_duration`` windows and write those as standard ``ep_XXXX``
+        folders. If the user stops early, only fully completed windows are saved;
+        the trailing partial window is discarded.
+        """
+
+        with self._lock:
+            if self._recording_start is None:
+                raise ValueError("Recording start time is missing.")
+            if self._recording_base_episode_number is None:
+                raise ValueError("Base episode number is missing for continuous recording.")
+            recording_start = self._recording_start
+            episode_duration = self.settings.episode_duration
+            planned_episode_count = self._planned_episode_count
+            base_episode_number = self._recording_base_episode_number
+            planned_end = recording_start + episode_duration * planned_episode_count
+            effective_end = min(recording_end, planned_end)
+            completed_episode_count = min(
+                planned_episode_count,
+                int(max(0.0, effective_end - recording_start) / episode_duration),
+            )
+            if completed_episode_count <= 0:
+                self._discard_current_episode_locked("", clear_finalizing=False)
+                raise ValueError(
+                    "Continuous recording stopped before one full fixed-duration episode "
+                    "window was captured."
+                )
+
+            saved_paths: list[str] = []
+            for segment_index in range(completed_episode_count):
+                segment_start = recording_start + segment_index * episode_duration
+                segment_end = min(segment_start + episode_duration, effective_end)
+                segment_duration = max(0.0, segment_end - segment_start)
+                emg_data = self._collect_episode_samples_locked(self._emg_stream, segment_start, segment_end)
+                pose_data = self._collect_episode_samples_locked(self._pose_stream, segment_start, segment_end)
+                episode_number = base_episode_number + segment_index
+                if DEBUG_COLLECTION_BOUNDARIES:
+                    print(
+                        "[CollectionDebug] "
+                        f"episode=ep_{episode_number:04d} slice_complete "
+                        f"duration_s={segment_duration:.3f} "
+                        f"emg_samples={len(emg_data)} pose_samples={len(pose_data)}"
+                    )
+                self._validate_episode_capture(segment_duration, emg_data, pose_data)
+                saved_paths.append(
+                    save_episode(
+                        settings=self.settings,
+                        episode_number=episode_number,
+                        emg_data=emg_data,
+                        pose_data=pose_data,
+                        episode_id=str(uuid.uuid4()),
+                        recorded_duration_seconds=segment_duration,
+                    )
+                )
+
+            trailing_seconds = max(0.0, effective_end - (recording_start + completed_episode_count * episode_duration))
+            trailing_note = None
+            if trailing_seconds >= MIN_RECORD_SECONDS:
+                trailing_note = (
+                    "Discarded a trailing partial segment because continuous mode only saves "
+                    "complete fixed-duration episodes"
+                )
+            self._discard_current_episode_locked("", clear_finalizing=False)
+            return saved_paths, trailing_note
+
     def _validate_episode_capture(
         self,
         recorded_duration_seconds: float,
@@ -613,6 +713,8 @@ class CollectionController:
 
     def _discard_current_episode_locked(self, reason: str, clear_finalizing: bool = True) -> None:
         self._recording_start = None
+        self._recording_base_episode_number = None
+        self._planned_episode_count = 1
         self._record_stop_event.clear()
         self._record_abort_event.clear()
         self._record_abort_reason = ""
@@ -694,6 +796,51 @@ class CollectionController:
 
     def _next_episode_name_locked(self) -> str:
         return f"ep_{self.runtime['completed_episodes'] + 1:04d}"
+
+    def _planned_episode_label_locked(self) -> str:
+        """Return the next episode or episode range for the active recording."""
+
+        base_episode_number = self._recording_base_episode_number or (self.runtime["completed_episodes"] + 1)
+        if self._planned_episode_count <= 1:
+            return f"ep_{base_episode_number:04d}"
+        final_episode_number = base_episode_number + self._planned_episode_count - 1
+        return f"ep_{base_episode_number:04d}-ep_{final_episode_number:04d}"
+
+    def _saved_episode_label(self, episode_paths: list[str]) -> str:
+        """Format one or many saved episode directories for status text."""
+
+        if len(episode_paths) == 1:
+            return os.path.basename(episode_paths[0])
+        return f"{os.path.basename(episode_paths[0])} - {os.path.basename(episode_paths[-1])}"
+
+    def _remaining_episode_slots_locked(self) -> int:
+        """Return how many episode slots the next recording should fill."""
+
+        remaining = max(0, self.settings.episodes_per_session - self.runtime["completed_episodes"])
+        if self.settings.recording_mode == RECORDING_MODE_CONTINUOUS:
+            return remaining
+        return min(1, remaining)
+
+    def _recording_status_message_locked(self, initial: bool) -> str:
+        """Return the in-progress recording message for the active mode."""
+
+        if self.settings.recording_mode != RECORDING_MODE_CONTINUOUS or self._recording_start is None:
+            return "Capturing synchronized Leap pose and Myo EMG"
+
+        elapsed = max(0.0, time.perf_counter() - self._recording_start)
+        current_segment = min(self._planned_episode_count, int(elapsed / self.settings.episode_duration) + 1)
+        prefix = "Starting" if initial else "Capturing"
+        return (
+            f"{prefix} continuous capture segment {current_segment}/{self._planned_episode_count} "
+            f"({self.settings.episode_duration:.1f}s each)"
+        )
+
+    def _saving_status_message_locked(self) -> str:
+        """Return the save/finalization message for the active mode."""
+
+        if self.settings.recording_mode == RECORDING_MODE_CONTINUOUS and self._planned_episode_count > 1:
+            return "Splitting continuous capture into episode files"
+        return "Writing episode files to disk"
 
     def _update_ready_state_locked(self) -> None:
         if self.runtime["recording"]:
