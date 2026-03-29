@@ -31,7 +31,7 @@ class HandPreviewWidget(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._points = []
-        self.setMinimumHeight(220)
+        self.setMinimumHeight(320)
 
     def set_points(self, points):
         self._points = points or []
@@ -88,7 +88,7 @@ class EmgPreviewWidget(QtWidgets.QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._samples = []
-        self.setMinimumHeight(220)
+        self.setMinimumHeight(260)
 
     def set_samples(self, samples):
         self._samples = samples or []
@@ -151,7 +151,7 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         self.hardware_action_thread = None
         self.hardware_action_name = ""
         self.setWindowTitle("SpikeformerMyoLeap | Data Collection")
-        self.resize(980, 720)
+        self.resize(1900, 1180)
 
         self._build_ui()
         self._load_persisted_fields()
@@ -179,25 +179,31 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         layout.addWidget(header)
         layout.addWidget(subheader)
 
+        self.message_banner = QtWidgets.QLabel("Ready")
+        self.message_banner.setObjectName("MessageBanner")
+        self.message_banner.setProperty("state", "idle")
+        self.message_banner.setWordWrap(True)
+        layout.addWidget(self.message_banner)
+
         content = QtWidgets.QHBoxLayout()
         content.setSpacing(18)
         layout.addLayout(content, stretch=1)
 
-        left_col = QtWidgets.QVBoxLayout()
-        left_col.setSpacing(16)
-        right_col = QtWidgets.QVBoxLayout()
-        right_col.setSpacing(16)
-        content.addLayout(left_col, stretch=3)
-        content.addLayout(right_col, stretch=2)
+        sidebar = QtWidgets.QVBoxLayout()
+        sidebar.setSpacing(16)
+        main_panel = QtWidgets.QVBoxLayout()
+        main_panel.setSpacing(16)
 
-        left_col.addWidget(self._build_session_group())
-        left_col.addWidget(self._build_controls_group())
-        left_col.addStretch(1)
+        content.addLayout(sidebar, stretch=2)
+        content.addLayout(main_panel, stretch=5)
 
-        right_col.addWidget(self._build_preview_group())
-        right_col.addWidget(self._build_status_group())
-        right_col.addWidget(self._build_notes_group())
-        right_col.addStretch(1)
+        sidebar.addWidget(self._build_session_group())
+        sidebar.addWidget(self._build_controls_group())
+        sidebar.addWidget(self._build_notes_group())
+        sidebar.addStretch(1)
+
+        main_panel.addWidget(self._build_preview_group(), stretch=3)
+        main_panel.addWidget(self._build_status_group(), stretch=2)
 
         footer = QtWidgets.QLabel(
             "The collection GUI now runs without spawning the separate dashboard window."
@@ -207,11 +213,9 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
 
     def _build_session_group(self):
         group = QtWidgets.QGroupBox("Session Setup")
-        form = QtWidgets.QFormLayout(group)
-        form.setLabelAlignment(QtCore.Qt.AlignLeft)
-        form.setFormAlignment(QtCore.Qt.AlignTop)
-        form.setHorizontalSpacing(18)
-        form.setVerticalSpacing(12)
+        grid = QtWidgets.QGridLayout(group)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(12)
 
         self.subject_edit = QtWidgets.QLineEdit("user_1")
         self.session_edit = QtWidgets.QLineEdit("session_1")
@@ -229,20 +233,27 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         self.episodes_spin.setRange(1, 10000)
         self.episodes_spin.setValue(20)
 
-        save_dir_row = QtWidgets.QHBoxLayout()
         self.save_dir_edit = QtWidgets.QLineEdit("datasets")
         self.browse_btn = QtWidgets.QPushButton("Browse")
         self.browse_btn.clicked.connect(self.browse_save_dir)
-        save_dir_row.addWidget(self.save_dir_edit, stretch=1)
-        save_dir_row.addWidget(self.browse_btn)
 
-        form.addRow("Subject ID", self.subject_edit)
-        form.addRow("Session Name", self.session_edit)
-        form.addRow("Pose Name", self.pose_edit)
-        form.addRow("Recording Mode", self.recording_mode_combo)
-        form.addRow("Episode Duration (s)", self.duration_spin)
-        form.addRow("Episodes Per Session", self.episodes_spin)
-        form.addRow("Save Root", save_dir_row)
+        fields = [
+            ("Subject ID", self.subject_edit, 0, 0),
+            ("Session Name", self.session_edit, 0, 2),
+            ("Pose Name", self.pose_edit, 1, 0),
+            ("Recording Mode", self.recording_mode_combo, 1, 2),
+            ("Episode Duration (s)", self.duration_spin, 2, 0),
+            ("Episodes Per Session", self.episodes_spin, 2, 2),
+        ]
+        for label, widget, row, col in fields:
+            grid.addWidget(QtWidgets.QLabel(label), row, col)
+            grid.addWidget(widget, row, col + 1)
+
+        grid.addWidget(QtWidgets.QLabel("Save Root"), 3, 0)
+        grid.addWidget(self.save_dir_edit, 3, 1, 1, 2)
+        grid.addWidget(self.browse_btn, 3, 3)
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
         return group
 
     def _build_preview_group(self):
@@ -300,32 +311,31 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(group)
         layout.setSpacing(12)
 
-        top_row = QtWidgets.QHBoxLayout()
         self.connect_btn = QtWidgets.QPushButton("Connect Hardware")
         self.connect_btn.clicked.connect(self.connect_hardware)
         self.disconnect_btn = QtWidgets.QPushButton("Disconnect")
         self.disconnect_btn.clicked.connect(self.disconnect_hardware)
-        top_row.addWidget(self.connect_btn)
-        top_row.addWidget(self.disconnect_btn)
-
-        session_row = QtWidgets.QHBoxLayout()
         self.start_session_btn = QtWidgets.QPushButton("Start Session")
         self.start_session_btn.clicked.connect(self.start_session)
         self.stop_session_btn = QtWidgets.QPushButton("Stop Session")
         self.stop_session_btn.clicked.connect(self.stop_session)
-        session_row.addWidget(self.start_session_btn)
-        session_row.addWidget(self.stop_session_btn)
-
-        record_row = QtWidgets.QHBoxLayout()
         self.record_btn = QtWidgets.QPushButton("Record Next Episode")
         self.record_btn.clicked.connect(self.start_recording)
         self.stop_record_btn = QtWidgets.QPushButton("Stop Recording Early")
         self.stop_record_btn.clicked.connect(self.stop_recording)
         self.refresh_btn = QtWidgets.QPushButton("Refresh Session State")
         self.refresh_btn.clicked.connect(self.refresh_status)
-        record_row.addWidget(self.record_btn)
-        record_row.addWidget(self.stop_record_btn)
-        record_row.addWidget(self.refresh_btn)
+
+        button_grid = QtWidgets.QGridLayout()
+        button_grid.setHorizontalSpacing(10)
+        button_grid.setVerticalSpacing(10)
+        button_grid.addWidget(self.connect_btn, 0, 0)
+        button_grid.addWidget(self.disconnect_btn, 0, 1)
+        button_grid.addWidget(self.start_session_btn, 1, 0)
+        button_grid.addWidget(self.stop_session_btn, 1, 1)
+        button_grid.addWidget(self.record_btn, 2, 0)
+        button_grid.addWidget(self.stop_record_btn, 2, 1)
+        button_grid.addWidget(self.refresh_btn, 3, 0, 1, 2)
 
         self.path_preview = QtWidgets.QLabel("")
         self.path_preview.setObjectName("PreviewLabel")
@@ -333,18 +343,25 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         self.warning_label.setObjectName("WarningLabel")
         self.warning_label.setWordWrap(True)
 
-        layout.addLayout(top_row)
-        layout.addLayout(session_row)
-        layout.addLayout(record_row)
+        layout.addLayout(button_grid)
         layout.addWidget(self.path_preview)
         layout.addWidget(self.warning_label)
         return group
 
     def _build_status_group(self):
         group = QtWidgets.QGroupBox("Live Status")
-        grid = QtWidgets.QGridLayout(group)
+        outer_layout = QtWidgets.QVBoxLayout(group)
+        outer_layout.setContentsMargins(8, 10, 8, 8)
+
+        scroll = QtWidgets.QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(QtCore.Qt.ScrollBarAlwaysOff)
+
+        content = QtWidgets.QWidget()
+        grid = QtWidgets.QGridLayout(content)
         grid.setHorizontalSpacing(14)
-        grid.setVerticalSpacing(10)
+        grid.setVerticalSpacing(8)
 
         self.status_labels = {}
         rows = [
@@ -364,15 +381,23 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
             ("Last Aborted", "last_aborted_episode"),
         ]
 
-        for row_idx, (label, key) in enumerate(rows):
+        midpoint = (len(rows) + 1) // 2
+        for index, (label, key) in enumerate(rows):
+            row_idx = index % midpoint
+            column_offset = 0 if index < midpoint else 2
             key_label = QtWidgets.QLabel(label)
             key_label.setObjectName("KeyLabel")
             value_label = QtWidgets.QLabel("-")
             value_label.setObjectName("ValueLabel")
             value_label.setWordWrap(True)
-            grid.addWidget(key_label, row_idx, 0)
-            grid.addWidget(value_label, row_idx, 1)
+            grid.addWidget(key_label, row_idx, column_offset)
+            grid.addWidget(value_label, row_idx, column_offset + 1)
             self.status_labels[key] = value_label
+
+        grid.setColumnStretch(1, 1)
+        grid.setColumnStretch(3, 1)
+        scroll.setWidget(content)
+        outer_layout.addWidget(scroll)
 
         return group
 
@@ -449,6 +474,39 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
             }
             QLabel#Footnote, QLabel#Notes {
                 color: #94a3b8;
+            }
+            QLabel#MessageBanner {
+                background: #0f172a;
+                border: 1px solid #22d3ee;
+                border-radius: 14px;
+                padding: 16px 18px;
+                color: #f8fafc;
+                font-size: 20px;
+                font-weight: 700;
+            }
+            QLabel#MessageBanner[state="ready"] {
+                background: #082f49;
+                border-color: #38bdf8;
+            }
+            QLabel#MessageBanner[state="recording"] {
+                background: #3f1d0d;
+                border-color: #f59e0b;
+            }
+            QLabel#MessageBanner[state="saving"] {
+                background: #172554;
+                border-color: #60a5fa;
+            }
+            QLabel#MessageBanner[state="warning"] {
+                background: #431407;
+                border-color: #fb923c;
+            }
+            QLabel#MessageBanner[state="error"] {
+                background: #450a0a;
+                border-color: #f87171;
+            }
+            QLabel#MessageBanner[state="idle"] {
+                background: #111827;
+                border-color: #475569;
             }
             QLabel#PreviewLabel {
                 color: #22d3ee;
@@ -582,6 +640,8 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
 
         self.status_labels["mode"].setText(str(snapshot["mode"]))
         self.status_labels["status_message"].setText(str(snapshot["status_message"]))
+        self.message_banner.setText(str(snapshot["status_message"]))
+        self._set_message_banner_state(snapshot)
         self.status_labels["recording_mode"].setText(
             "Continuous Block" if recording_mode == "continuous" else "Episodic"
         )
@@ -667,6 +727,28 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         self.episodes_spin.setEnabled(fields_editable)
         self.save_dir_edit.setEnabled(fields_editable)
         self.browse_btn.setEnabled(fields_editable)
+
+    def _set_message_banner_state(self, snapshot):
+        """Update the top banner color based on the current runtime state."""
+
+        if snapshot["recording"]:
+            state = "recording"
+        elif snapshot["mode"] == "Saving" or snapshot.get("finalizing_episode"):
+            state = "saving"
+        elif snapshot["last_error"]:
+            state = "error"
+        elif snapshot["hardware_running"] and snapshot["session_active"] and snapshot["myo_streaming"] and snapshot["leap_streaming"]:
+            state = "ready"
+        elif snapshot["hardware_running"]:
+            state = "warning"
+        else:
+            state = "idle"
+
+        if self.message_banner.property("state") != state:
+            self.message_banner.setProperty("state", state)
+            self.style().unpolish(self.message_banner)
+            self.style().polish(self.message_banner)
+            self.message_banner.update()
 
     def show_error(self, message):
         QtWidgets.QMessageBox.critical(self, "Collection Error", message)
