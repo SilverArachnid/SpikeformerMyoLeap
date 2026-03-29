@@ -216,6 +216,9 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         self.subject_edit = QtWidgets.QLineEdit("user_1")
         self.session_edit = QtWidgets.QLineEdit("session_1")
         self.pose_edit = QtWidgets.QLineEdit("test_pose")
+        self.recording_mode_combo = QtWidgets.QComboBox()
+        self.recording_mode_combo.addItem("Episodic", "episodic")
+        self.recording_mode_combo.addItem("Continuous Block", "continuous")
         self.duration_spin = QtWidgets.QDoubleSpinBox()
         self.duration_spin.setRange(0.5, 120.0)
         self.duration_spin.setDecimals(1)
@@ -236,6 +239,7 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         form.addRow("Subject ID", self.subject_edit)
         form.addRow("Session Name", self.session_edit)
         form.addRow("Pose Name", self.pose_edit)
+        form.addRow("Recording Mode", self.recording_mode_combo)
         form.addRow("Episode Duration (s)", self.duration_spin)
         form.addRow("Episodes Per Session", self.episodes_spin)
         form.addRow("Save Root", save_dir_row)
@@ -264,6 +268,9 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         self.subject_edit.setText(str(self.settings_store.value("subject_id", self.subject_edit.text())))
         self.session_edit.setText(str(self.settings_store.value("session_name", self.session_edit.text())))
         self.pose_edit.setText(str(self.settings_store.value("pose_name", self.pose_edit.text())))
+        saved_mode = str(self.settings_store.value("recording_mode", self.recording_mode_combo.currentData()))
+        mode_index = self.recording_mode_combo.findData(saved_mode)
+        self.recording_mode_combo.setCurrentIndex(mode_index if mode_index >= 0 else 0)
         self.duration_spin.setValue(float(self.settings_store.value("episode_duration", self.duration_spin.value())))
         self.episodes_spin.setValue(int(self.settings_store.value("episodes_per_session", self.episodes_spin.value())))
         self.save_dir_edit.setText(str(self.settings_store.value("save_dir", self.save_dir_edit.text())))
@@ -272,6 +279,7 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         self.subject_edit.editingFinished.connect(self._persist_fields)
         self.session_edit.editingFinished.connect(self._persist_fields)
         self.pose_edit.editingFinished.connect(self._persist_fields)
+        self.recording_mode_combo.currentIndexChanged.connect(lambda _value: self._persist_fields())
         self.duration_spin.valueChanged.connect(lambda _value: self._persist_fields())
         self.episodes_spin.valueChanged.connect(lambda _value: self._persist_fields())
         self.save_dir_edit.editingFinished.connect(self._persist_fields)
@@ -281,6 +289,7 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         self.settings_store.setValue("subject_id", settings.subject_id)
         self.settings_store.setValue("session_name", settings.session_name)
         self.settings_store.setValue("pose_name", settings.pose_name)
+        self.settings_store.setValue("recording_mode", settings.recording_mode)
         self.settings_store.setValue("episode_duration", settings.episode_duration)
         self.settings_store.setValue("episodes_per_session", settings.episodes_per_session)
         self.settings_store.setValue("save_dir", settings.save_dir)
@@ -341,6 +350,7 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         rows = [
             ("Mode", "mode"),
             ("Message", "status_message"),
+            ("Recording Mode", "recording_mode"),
             ("Myo", "myo_connected"),
             ("Myo Stream", "myo_streaming"),
             ("Leap", "leap_connected"),
@@ -371,11 +381,12 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         layout = QtWidgets.QVBoxLayout(group)
 
         notes = QtWidgets.QLabel(
-            "1. Fill in subject, session, pose, duration, and episode count.\n"
+            "1. Fill in subject, session, pose, recording mode, duration, and episode count.\n"
             "2. Connect hardware to begin live monitoring.\n"
-            "3. Press 'Record Next Episode' to capture one full episode.\n"
-            "4. The controller saves into subject/session/pose/ep_XXXX folders.\n"
-            "5. Reuse the same session to continue collecting until the target count is reached."
+            "3. In Episodic mode, 'Record Next Episode' captures and saves one episode immediately.\n"
+            "4. In Continuous Block mode, one recording fills the remaining fixed-duration episode slots and saves them at the end.\n"
+            "5. The controller saves into subject/session/pose/ep_XXXX folders in both modes.\n"
+            "6. Reuse the same session to continue collecting until the target count is reached."
         )
         notes.setWordWrap(True)
         notes.setObjectName("Notes")
@@ -463,6 +474,7 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
             subject_id=self.subject_edit.text().strip() or "user_1",
             session_name=self.session_edit.text().strip() or "session_1",
             pose_name=self.pose_edit.text().strip() or "test_pose",
+            recording_mode=str(self.recording_mode_combo.currentData() or "episodic"),
             episode_duration=float(self.duration_spin.value()),
             episodes_per_session=int(self.episodes_spin.value()),
             save_dir=self.save_dir_edit.text().strip() or "datasets",
@@ -523,9 +535,14 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
             self.show_error("This session already reached the configured number of episodes.")
             return
 
-        next_episode_path = self.next_episode_path(snapshot, settings)
-        if os.path.exists(next_episode_path):
-            self.show_error(f"Next episode path already exists:\n{next_episode_path}")
+        planned_paths = self.planned_episode_paths(snapshot, settings)
+        existing_paths = [path for path in planned_paths if os.path.exists(path)]
+        if existing_paths:
+            self.show_error(
+                "One or more output episode paths already exist:\n"
+                + "\n".join(existing_paths[:5])
+                + ("\n..." if len(existing_paths) > 5 else "")
+            )
             return
 
         try:
@@ -541,23 +558,33 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         except Exception as exc:
             self.show_error(str(exc))
 
-    def next_episode_path(self, snapshot, settings):
+    def planned_episode_paths(self, snapshot, settings):
         next_episode = snapshot["completed_episodes"] + 1
-        return os.path.join(
-            settings.save_dir,
-            settings.subject_id,
-            settings.session_name,
-            settings.pose_name,
-            f"ep_{next_episode:04d}",
-        )
+        count = 1
+        if settings.recording_mode == "continuous":
+            count = max(0, settings.episodes_per_session - snapshot["completed_episodes"])
+        return [
+            os.path.join(
+                settings.save_dir,
+                settings.subject_id,
+                settings.session_name,
+                settings.pose_name,
+                f"ep_{episode_number:04d}",
+            )
+            for episode_number in range(next_episode, next_episode + count)
+        ]
 
     def refresh_status(self):
         settings = self.current_settings()
         snapshot = self.controller.get_status_snapshot()
         preview = self.controller.get_preview_snapshot()
+        recording_mode = str(snapshot.get("recording_mode", settings.recording_mode))
 
         self.status_labels["mode"].setText(str(snapshot["mode"]))
         self.status_labels["status_message"].setText(str(snapshot["status_message"]))
+        self.status_labels["recording_mode"].setText(
+            "Continuous Block" if recording_mode == "continuous" else "Episodic"
+        )
         self.status_labels["myo_connected"].setText("Connected" if snapshot["myo_connected"] else "Disconnected")
         self.status_labels["myo_streaming"].setText("Healthy" if snapshot["myo_streaming"] else "Waiting")
         self.status_labels["leap_connected"].setText("Connected" if snapshot["leap_connected"] else "Disconnected")
@@ -572,12 +599,20 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         self.hand_preview.set_points(preview.get("hand_points", []))
         self.emg_preview.set_samples(preview.get("emg_window", []))
 
-        next_path = self.next_episode_path(snapshot, settings)
-        self.path_preview.setText(f"Next episode path: {next_path}")
+        planned_paths = self.planned_episode_paths(snapshot, settings)
+        if not planned_paths:
+            self.path_preview.setText("No remaining episode slots in this session.")
+        elif len(planned_paths) == 1:
+            self.path_preview.setText(f"Next episode path: {planned_paths[0]}")
+        else:
+            self.path_preview.setText(
+                f"Continuous block will save: {planned_paths[0]} ... {planned_paths[-1]}"
+            )
 
         warnings = []
-        if os.path.exists(next_path):
-            warnings.append("Next episode path already exists. Rename the session or pose before recording.")
+        existing_paths = [path for path in planned_paths if os.path.exists(path)]
+        if existing_paths:
+            warnings.append("One or more planned episode paths already exist. Rename the session or pose before recording.")
         session_dir = os.path.join(settings.save_dir, settings.subject_id, settings.session_name)
         if os.path.isdir(session_dir):
             warnings.append("Session directory already exists. New episodes will continue numbering inside it.")
@@ -607,7 +642,7 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
             and snapshot["leap_streaming"]
             and not snapshot["recording"]
             and snapshot["completed_episodes"] < settings.episodes_per_session
-            and not os.path.exists(next_path)
+            and not existing_paths
         )
         can_stop_record = not action_running and snapshot["recording"]
         self.connect_btn.setEnabled(can_connect)
@@ -616,11 +651,18 @@ class CollectionMainWindow(QtWidgets.QMainWindow):
         self.stop_session_btn.setEnabled(can_stop_session)
         self.record_btn.setEnabled(can_record)
         self.stop_record_btn.setEnabled(can_stop_record)
+        if settings.recording_mode == "continuous":
+            self.record_btn.setText("Record Remaining Block")
+            self.stop_record_btn.setText("Stop Block and Save Full Segments")
+        else:
+            self.record_btn.setText("Record Next Episode")
+            self.stop_record_btn.setText("Stop Recording Early")
 
         fields_editable = not action_running and not snapshot["session_active"] and not snapshot["recording"]
         self.subject_edit.setEnabled(fields_editable)
         self.session_edit.setEnabled(fields_editable)
         self.pose_edit.setEnabled(fields_editable)
+        self.recording_mode_combo.setEnabled(fields_editable)
         self.duration_spin.setEnabled(fields_editable)
         self.episodes_spin.setEnabled(fields_editable)
         self.save_dir_edit.setEnabled(fields_editable)
