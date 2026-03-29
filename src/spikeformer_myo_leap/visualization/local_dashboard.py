@@ -22,9 +22,28 @@ TEXT = "#e5e7eb"
 MUTED = "#94a3b8"
 GRID = "#334155"
 ACCENT = "#22d3ee"
+ANGLE_LABELS_10 = [
+    "T MCP", "T IP",
+    "I MCP", "I PIP",
+    "M MCP", "M PIP",
+    "R MCP", "R PIP",
+    "P MCP", "P PIP",
+]
+ANGLE_LABELS_14 = [
+    "T MCP", "T IP",
+    "I MCP", "I PIP", "I DIP",
+    "M MCP", "M PIP", "M DIP",
+    "R MCP", "R PIP", "R DIP",
+    "P MCP", "P PIP", "P DIP",
+]
 
 
-def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_emg, history_size):
+def _dashboard_main(hand_queue, emg_queue, angle_queue, status_queue, title, show_hand, show_emg, show_angles, history_size):
+    import matplotlib
+    try:
+        matplotlib.use("QtAgg")
+    except Exception:
+        pass
     import matplotlib.pyplot as plt
 
     plt.rcParams.update({
@@ -43,6 +62,8 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
     hand_state = []
     emg_times = deque(maxlen=history_size)
     emg_samples = deque(maxlen=history_size)
+    angle_times = deque(maxlen=history_size)
+    angle_samples = deque(maxlen=history_size)
     status = {
         "mode": "Idle",
         "recording": False,
@@ -63,16 +84,31 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
         hand_ax = fig.add_subplot(gs[0, :2], projection="3d")
         status_ax = fig.add_subplot(gs[0, 2])
         emg_ax = fig.add_subplot(gs[1, :])
+        angle_ax = None
+    elif show_angles and show_emg:
+        gs = fig.add_gridspec(2, 3, height_ratios=[1.8, 1.4], width_ratios=[1.3, 1.3, 0.9], hspace=0.18, wspace=0.16)
+        angle_ax = fig.add_subplot(gs[0, :2])
+        status_ax = fig.add_subplot(gs[0, 2])
+        emg_ax = fig.add_subplot(gs[1, :])
+        hand_ax = None
     elif show_hand:
         gs = fig.add_gridspec(1, 3, width_ratios=[1.3, 1.3, 0.9], wspace=0.16)
         hand_ax = fig.add_subplot(gs[0, :2], projection="3d")
         status_ax = fig.add_subplot(gs[0, 2])
         emg_ax = None
+        angle_ax = None
+    elif show_angles:
+        gs = fig.add_gridspec(1, 3, width_ratios=[2.3, 0.9, 0.01], wspace=0.16)
+        angle_ax = fig.add_subplot(gs[0, 0])
+        status_ax = fig.add_subplot(gs[0, 1])
+        emg_ax = None
+        hand_ax = None
     else:
         gs = fig.add_gridspec(1, 3, width_ratios=[2.3, 0.9, 0.01], wspace=0.16)
         emg_ax = fig.add_subplot(gs[0, 0])
         status_ax = fig.add_subplot(gs[0, 1])
         hand_ax = None
+        angle_ax = None
 
     fig.suptitle(title, fontsize=18, fontweight="bold", color=TEXT, x=0.06, ha="left")
 
@@ -97,6 +133,8 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
         style_3d_axis(hand_ax)
     if emg_ax is not None:
         style_2d_axis(emg_ax)
+    if angle_ax is not None:
+        style_2d_axis(angle_ax)
 
     def drain_queue():
         nonlocal stop_requested
@@ -126,6 +164,15 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
 
         while True:
             try:
+                payload, ts = angle_queue.get_nowait()
+            except queue.Empty:
+                break
+
+            angle_times.append(ts)
+            angle_samples.append(np.asarray(payload, dtype=np.float32))
+
+        while True:
+            try:
                 payload, ts = status_queue.get_nowait()
             except queue.Empty:
                 break
@@ -142,9 +189,9 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
         hand_ax.clear()
         style_3d_axis(hand_ax)
         hand_ax.set_title("Hand Pose", loc="left", fontsize=13, pad=12)
-        hand_ax.set_xlim(-250, 250)
-        hand_ax.set_ylim(50, 420)
-        hand_ax.set_zlim(-220, 220)
+        hand_ax.set_xlim(-170, 170)
+        hand_ax.set_ylim(120, 360)
+        hand_ax.set_zlim(-150, 150)
 
         if not hand_state:
             hand_ax.text2D(0.05, 0.9, "No hand tracked", transform=hand_ax.transAxes, color=MUTED, fontsize=12)
@@ -197,6 +244,38 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
         emg_ax.set_xlim(time_axis[0], 0.0)
         emg_ax.set_ylim(-scale * 1.5, offsets[0] + scale * 1.5)
 
+    def render_angles():
+        if angle_ax is None:
+            return
+
+        angle_ax.clear()
+        style_2d_axis(angle_ax)
+        angle_ax.set_title("Predicted Joint Angles", loc="left", fontsize=13, pad=12)
+
+        if len(angle_samples) < 2:
+            angle_ax.text(0.03, 0.86, "Waiting for inference output", transform=angle_ax.transAxes, color=MUTED, fontsize=12)
+            return
+
+        samples = np.vstack(angle_samples)
+        times = np.asarray(angle_times)
+        time_axis = times - times[-1]
+        labels = ANGLE_LABELS_10 if samples.shape[1] == 10 else ANGLE_LABELS_14 if samples.shape[1] == 14 else []
+
+        for channel_idx in range(samples.shape[1]):
+            color = EMG_COLORS[channel_idx % len(EMG_COLORS)]
+            angle_ax.plot(
+                time_axis,
+                samples[:, channel_idx],
+                color=color,
+                linewidth=1.6,
+                label=labels[channel_idx] if channel_idx < len(labels) else f"A{channel_idx + 1}",
+            )
+
+        angle_ax.set_xlabel("Time (s)")
+        angle_ax.set_ylabel("Radians")
+        angle_ax.set_xlim(time_axis[0], 0.0)
+        angle_ax.legend(loc="upper left", ncols=2, fontsize=8, frameon=False, labelcolor=TEXT)
+
     def render_status():
         status_ax.clear()
         status_ax.set_facecolor(PANEL_BG)
@@ -247,6 +326,7 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
             return False
         render_hand()
         render_emg()
+        render_angles()
         render_status()
         fig.canvas.draw_idle()
         return True
@@ -262,14 +342,16 @@ def _dashboard_main(hand_queue, emg_queue, status_queue, title, show_hand, show_
 
 
 class LocalDashboard:
-    def __init__(self, title, show_hand=True, show_emg=True, history_size=320):
+    def __init__(self, title, show_hand=True, show_emg=True, show_angles=False, history_size=320):
         self.title = title
         self.show_hand = show_hand
         self.show_emg = show_emg
+        self.show_angles = show_angles
         self.history_size = history_size
         self._ctx = mp.get_context("spawn")
         self._hand_queue = self._ctx.Queue(maxsize=1)
         self._emg_queue = self._ctx.Queue(maxsize=128)
+        self._angle_queue = self._ctx.Queue(maxsize=64)
         self._status_queue = self._ctx.Queue(maxsize=4)
         self._process = None
 
@@ -281,10 +363,12 @@ class LocalDashboard:
             args=(
                 self._hand_queue,
                 self._emg_queue,
+                self._angle_queue,
                 self._status_queue,
                 self.title,
                 self.show_hand,
                 self.show_emg,
+                self.show_angles,
                 self.history_size,
             ),
             daemon=True,
@@ -328,6 +412,9 @@ class LocalDashboard:
 
     def update_emg(self, emg):
         self._append_stream(self._emg_queue, np.asarray(emg, dtype=np.float32).tolist())
+
+    def update_angles(self, angles):
+        self._append_stream(self._angle_queue, np.asarray(angles, dtype=np.float32).tolist())
 
     def update_status(self, **status):
         self._replace_latest(self._status_queue, status)

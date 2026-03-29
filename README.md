@@ -89,6 +89,31 @@ uv run preprocess_dataset.py
 ```
 This currently validates that the preprocessing stack can discover the dataset and build an episode manifest from the saved collection layout.
 
+8. Live checkpoint inference:
+```bash
+uv run live_inference.py checkpoint_path=/path/to/checkpoint.pt
+```
+This streams live Myo EMG, rebuilds the trained inference window online, applies the checkpoint normalization stats, and visualizes the predicted hand state live.
+It also supports an optional retargeting flag:
+```bash
+uv run live_inference.py \
+  checkpoint_path=/path/to/checkpoint.pt \
+  prosthetic_model=ability_hand
+```
+Supported retargeting adapters currently are:
+- `none`
+- `ability_hand`
+- `dexhandv2_right`
+- `dexhandv2_cobot_right`
+
+The current live path already computes canonical finger articulation for retargeting.
+MuJoCo driving is still a follow-up step; this branch stops at biological-hand
+visualization plus prosthetic joint-command generation.
+
+Note:
+- Spikeformer checkpoints work live, but they may benefit from a lower
+  `update_hz` than the default during future runtime tuning.
+
 8. Training and evaluation entry points:
 ```bash
 uv run train.py

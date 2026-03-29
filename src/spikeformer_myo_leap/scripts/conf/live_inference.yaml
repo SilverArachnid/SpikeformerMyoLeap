@@ -1,0 +1,7 @@
+checkpoint_path: ""
+device: auto
+viewer: local
+update_hz: 30.0
+emg_history_seconds: 5.0
+prosthetic_model: none
+show_emg: true
