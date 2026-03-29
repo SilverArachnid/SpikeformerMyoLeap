@@ -269,6 +269,7 @@ The repo now also includes the first packaged training/evaluation foundation:
 - episode-level train/val split
 - window-level validation each epoch
 - full-episode validation with saved qualitative outputs
+- per-run artifact directories so checkpoints, summaries, and validation replays do not overwrite each other
 
 This is sufficient for baseline training runs, but model comparison, normalization refinements, and streaming inference remain follow-up work.
 
