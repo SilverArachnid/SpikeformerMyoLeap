@@ -45,7 +45,8 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
 
     run_start_time = time.perf_counter()
     device = resolve_device(config.device)
-    os.makedirs(config.output_dir, exist_ok=True)
+    run_output_dir = _create_run_output_dir(config)
+    os.makedirs(run_output_dir, exist_ok=True)
 
     full_dataset, train_dataset, val_dataset, normalization_stats = build_dataset_splits(
         dataset_root=config.dataset.dataset_root,
@@ -107,8 +108,9 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
     best_val_loss = float("inf")
     history = {"train_losses": [], "val_losses": []}
     full_episode_history: list[dict[str, Any]] = []
-    best_checkpoint = os.path.join(config.output_dir, f"{config.model_name}_best.pt")
-    last_checkpoint = os.path.join(config.output_dir, f"{config.model_name}_last.pt")
+    best_checkpoint = os.path.join(run_output_dir, f"{config.model_name}_best.pt")
+    last_checkpoint = os.path.join(run_output_dir, f"{config.model_name}_last.pt")
+    print(f"Saving run artifacts under {run_output_dir}")
     print(
         f"Training {config.model_name} on {device} "
         f"with {len(train_dataset.episode_paths)} train episodes / {len(val_dataset.episode_paths)} val episodes "
@@ -186,7 +188,7 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
             episodes=val_dataset.episodes,
             device=device,
             window_size=config.dataset.window_size,
-            output_dir=config.output_dir,
+            output_dir=run_output_dir,
             epoch_index=epoch_index,
             config=config.full_episode_eval,
             reset_model_state=reset_model_state,
@@ -202,7 +204,7 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
             for result in full_episode_results:
                 print(
                     f"  Full-episode val: rmse={result.rmse:.4f}, mae={result.mae:.4f}, "
-                    f"frames={result.valid_frame_count}, episode={result.episode_dir}"
+                    f"fps={result.inference_fps:.1f}, frames={result.valid_frame_count}, episode={result.episode_dir}"
                 )
 
     torch.save(
@@ -226,6 +228,7 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
         "history": history,
         "full_episode_history": full_episode_history,
         "checkpoints": {"best": best_checkpoint, "last": last_checkpoint},
+        "run_output_dir": run_output_dir,
         "model_name": config.model_name,
         "target_mode": config.dataset.preprocessing.target_mode,
         "target_representation": config.dataset.preprocessing.target_representation,
@@ -233,7 +236,24 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
         "runtime_seconds": total_runtime_seconds,
         "config": asdict(config),
     }
-    with open(os.path.join(config.output_dir, "training_summary.json"), "w", encoding="utf-8") as handle:
+    with open(os.path.join(run_output_dir, "training_summary.json"), "w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
     print(f"Training complete in {total_runtime_seconds:.2f}s.")
     return summary
+
+
+def _create_run_output_dir(config: TrainingConfig) -> str:
+    """Create a unique artifact directory for one training run.
+
+    Each run gets its own folder so checkpoints, summaries, and full-episode
+    visualizations from different target modes do not overwrite or visually
+    confuse each other.
+    """
+
+    timestamp = time.strftime("%Y%m%d_%H%M%S")
+    preprocessing = config.dataset.preprocessing
+    run_name = (
+        f"{timestamp}_{config.model_name}_"
+        f"{preprocessing.target_mode}_{preprocessing.target_representation}"
+    )
+    return os.path.join(config.output_dir, run_name)

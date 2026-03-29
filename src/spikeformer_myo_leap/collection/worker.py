@@ -42,6 +42,7 @@ DEFAULT_STATUS_SNAPSHOT: dict[str, Any] = {
     "subject_id": "user_1",
     "session_name": "session_1",
     "pose_name": "test_pose",
+    "recording_mode": "episodic",
     "episode_duration": 5.0,
     "save_dir": "datasets",
     "session_dir": "",

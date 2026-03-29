@@ -54,6 +54,9 @@ uv run collection_gui.py
 ```
 This is now the primary collection workflow. It provides:
 - subject / session / pose configuration
+- recording-mode toggle:
+  - `episodic`: save each take immediately
+  - `continuous`: record one uninterrupted block and split it into fixed-duration episodes at the end
 - episode duration and episodes-per-session controls
 - connect / disconnect hardware buttons
 - start / stop session
@@ -68,6 +71,11 @@ This is now the primary collection workflow. It provides:
 uv run leap_myo_data_collection.py
 ```
 Press `Space` to record the next episode, `s` to stop early and save, and `Esc` or `q` to quit.
+
+Continuous collection caveat:
+- continuous mode saves only complete fixed-duration windows at the end of the block
+- if you stop a continuous block early, any trailing partial window is discarded rather than saved as a short episode
+- this mode reduces repeated start/stop transitions, but it requires the operator to keep pose timing clean during the whole block
 
 6. Review saved data:
 ```bash
@@ -202,6 +210,7 @@ The collection stack now includes the following robustness improvements:
 - continuous stream buffering for episode slicing instead of direct callback-owned episode buffers
 - Myo reconnect cleanup after device/port faults
 - a worker-backed GUI path so hardware/control failures do not directly freeze the Qt window
+- an optional continuous recording mode that records one uninterrupted block and segments it into standard `ep_XXXX` folders after capture
 
 The terminal collector remains useful as a fallback path:
 - `uv run leap_myo_data_collection.py`
@@ -285,6 +294,7 @@ The repo now also includes the first packaged training/evaluation foundation:
 - episode-level train/val split
 - window-level validation each epoch
 - full-episode validation with saved qualitative outputs
+- per-run artifact directories so checkpoints, summaries, and validation replays do not overwrite each other
 
 This is sufficient for baseline training runs, but model comparison, normalization refinements, and streaming inference remain follow-up work.
 
