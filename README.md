@@ -115,8 +115,17 @@ Supported retargeting adapters currently are:
 - `dexhandv2_cobot_right`
 
 The current live path already computes canonical finger articulation for retargeting.
-MuJoCo driving is still a follow-up step; this branch stops at biological-hand
-visualization plus prosthetic joint-command generation.
+You can also route those commands into MuJoCo:
+```bash
+uv run live_inference.py \
+  checkpoint_path=/path/to/checkpoint.pt \
+  prosthetic_model=dexhandv2_right \
+  simulator_backend=mujoco
+```
+The MuJoCo backend expects a model whose actuator or joint names match the
+retargeted prosthetic command names. For the DexHand targets this repo now
+vendors the required URDF + mesh assets directly under `assets/prosthetics/`,
+so the default MuJoCo path no longer depends on the sibling legacy repo.
 
 Note:
 - Spikeformer checkpoints work live, but they may benefit from a lower

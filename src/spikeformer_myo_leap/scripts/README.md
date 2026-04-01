@@ -13,4 +13,4 @@ This folder contains thin package entry points for user-facing commands.
 - `replay_dataset.py`: Launches the dataset reviewer GUI for replaying and curating saved episodes, using a small Hydra config for dataset root and preview mode.
 - `train.py`: Hydra-backed training entry point for packaged model training.
 - `evaluate.py`: Hydra-backed checkpoint evaluation entry point for packaged models.
-- `live_inference.py`: Hydra-backed live Myo inference entry point for loading a checkpoint, visualizing live predictions, and optionally emitting retargeted prosthetic joint commands for supported hand adapters.
+- `live_inference.py`: Hydra-backed live Myo inference entry point for loading a checkpoint, visualizing live predictions, optionally emitting retargeted prosthetic joint commands, and optionally driving a MuJoCo hand backend.
