@@ -18,6 +18,7 @@ from spikeformer_myo_leap.inference.articulation import (
     points_to_canonical_articulation,
 )
 from spikeformer_myo_leap.inference.prosthetics import format_prosthetic_status, map_articulation_to_prosthetic
+from spikeformer_myo_leap.inference.simulator import build_simulator_backend
 from spikeformer_myo_leap.models import create_model
 from spikeformer_myo_leap.training.train import reset_model_state, resolve_device
 from spikeformer_myo_leap.visualization.local_dashboard import LocalDashboard
@@ -134,6 +135,21 @@ def run_live_inference(config: LiveInferenceConfig) -> None:
     model_name = str(checkpoint_config["model_name"])
     if config.prosthetic_model != "none" and target_mode != "xyz":
         raise ValueError("prosthetic retargeting currently requires xyz checkpoints.")
+    if config.simulator_backend != "none" and config.prosthetic_model == "none":
+        raise ValueError("simulator_backend requires a prosthetic_model to be selected.")
+
+    if config.simulator_backend != "none":
+        print(
+            f"Launching {config.simulator_backend} simulator for prosthetic_model={config.prosthetic_model} "
+            f"(model_path={config.simulator_model_path or 'auto'})"
+        )
+    simulator = build_simulator_backend(
+        backend_name=config.simulator_backend,
+        model_path=config.simulator_model_path,
+        prosthetic_model=config.prosthetic_model,
+    )
+    if config.simulator_backend != "none":
+        print(f"{config.simulator_backend} simulator launched.")
 
     dashboard = None
     if config.viewer == "local":
@@ -142,6 +158,7 @@ def run_live_inference(config: LiveInferenceConfig) -> None:
             show_hand=(target_representation == "points"),
             show_emg=config.show_emg,
             show_angles=(target_representation == "joint_angles" or config.prosthetic_model != "none"),
+            show_simulator=(config.simulator_backend != "none"),
         )
         dashboard.start()
         dashboard.update_status(
@@ -225,6 +242,13 @@ def run_live_inference(config: LiveInferenceConfig) -> None:
             angle_display = prediction if config.prosthetic_model == "none" else articulation.as_array()
 
         prosthetic_commands = None if articulation is None else map_articulation_to_prosthetic(articulation, config.prosthetic_model)
+        simulator_stats = None
+        if prosthetic_commands is not None:
+            simulator_stats = simulator.apply(prosthetic_commands)
+            if dashboard is not None:
+                simulator_frame = simulator.latest_frame()
+                if simulator_frame is not None:
+                    dashboard.update_simulator_frame(simulator_frame)
 
         if dashboard is not None:
             status_line = f"Live inference {ema_fps:.1f} FPS | resample={resample_hz:.0f}Hz window={window_size}"
@@ -238,6 +262,8 @@ def run_live_inference(config: LiveInferenceConfig) -> None:
                 status_line = f"{status_line} | {format_articulation_status(articulation)}"
             if prosthetic_commands is not None:
                 status_line = f"{status_line} | {format_prosthetic_status(prosthetic_commands)}"
+            if simulator_stats is not None and config.simulator_backend != "none":
+                status_line = f"{status_line} | sim {simulator_stats.fps:.1f} FPS"
             dashboard.update_status(
                 mode="Live Inference",
                 recording=False,
@@ -259,6 +285,7 @@ def run_live_inference(config: LiveInferenceConfig) -> None:
         pass
     finally:
         myo.disconnect()
+        simulator.close()
         if dashboard is not None:
             dashboard.close()
         if latest_prediction is not None:

@@ -4,4 +4,6 @@ viewer: local
 update_hz: 30.0
 emg_history_seconds: 5.0
 prosthetic_model: none
+simulator_backend: none
+simulator_model_path: ""
 show_emg: true

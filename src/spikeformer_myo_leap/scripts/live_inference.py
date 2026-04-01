@@ -19,6 +19,8 @@ def main(cfg: DictConfig) -> None:
             update_hz=float(cfg.update_hz),
             emg_history_seconds=float(cfg.emg_history_seconds),
             prosthetic_model=str(cfg.prosthetic_model),
+            simulator_backend=str(cfg.simulator_backend),
+            simulator_model_path=str(cfg.simulator_model_path),
             show_emg=bool(cfg.show_emg),
         )
     )
