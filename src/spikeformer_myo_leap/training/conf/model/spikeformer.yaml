@@ -4,4 +4,4 @@ model_kwargs:
   num_blocks: 4
   heads: 4
   mlp_ratio: 2.0
-  backend: torch
+  backend: cupy
