@@ -18,6 +18,8 @@ dependencies = [
     "rerun-sdk",
     "hydra-core",
     "mujoco>=3.6.0",
+    "cupy-cuda12x>=14.0.1",
+    "tensorboard>=2.20.0",
 ]
 
 [tool.setuptools]
