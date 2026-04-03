@@ -23,6 +23,7 @@ def main(cfg: DictConfig):
         subject_id=cfg.subject_id,
         session_name=cfg.session_name,
         pose_name=cfg.pose_name,
+        recording_mode=str(cfg.recording_mode),
         episode_duration=float(cfg.episode_duration),
         episodes_per_session=int(cfg.max_episodes),
         save_dir=cfg.save_dir,
@@ -45,8 +46,12 @@ def main(cfg: DictConfig):
         print("\n==============================================")
         print(f"Ready to record up to {cfg.max_episodes} episodes of {cfg.pose_name}.")
         print(f"Target duration: {cfg.episode_duration}s per episode.")
-        print("Press SPACEBAR to record the next episode.")
-        print("Press 's' to stop the current episode early and save it.")
+        if settings.recording_mode == "continuous":
+            print("Press SPACEBAR to record the remaining episode slots as one continuous block.")
+            print("Press 's' to stop the current block early and save only completed full segments.")
+        else:
+            print("Press SPACEBAR to record the next episode.")
+            print("Press 's' to stop the current episode early and save it.")
         print("Press ESC or 'q' to quit.")
         print("==============================================\n")
 
@@ -87,15 +92,26 @@ def main(cfg: DictConfig):
                         print(f"\n[Status] Cannot record yet: waiting for healthy sensor data: {', '.join(waiting)}")
                         continue
                     try:
-                        print(
-                            f"\n[Episode {snapshot['completed_episodes'] + 1}/"
-                            f"{snapshot['episodes_per_session']}] Recording started..."
-                        )
+                        if settings.recording_mode == "continuous":
+                            remaining = snapshot["episodes_per_session"] - snapshot["completed_episodes"]
+                            print(
+                                f"\n[Continuous Block {snapshot['completed_episodes'] + 1}/"
+                                f"{snapshot['episodes_per_session']}] Recording started "
+                                f"for {remaining} episode window(s)..."
+                            )
+                        else:
+                            print(
+                                f"\n[Episode {snapshot['completed_episodes'] + 1}/"
+                                f"{snapshot['episodes_per_session']}] Recording started..."
+                            )
                         controller.start_episode()
                     except RuntimeError as exc:
                         print(f"\n[Status] Could not start recording: {exc}")
                 elif char.lower() == "s" and snapshot["recording"]:
-                    print("\nStopping current episode early...")
+                    if settings.recording_mode == "continuous":
+                        print("\nStopping current continuous block early...")
+                    else:
+                        print("\nStopping current episode early...")
                     controller.stop_episode()
 
             time.sleep(0.02)

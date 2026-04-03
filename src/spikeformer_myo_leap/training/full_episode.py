@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import os
+import time
 from typing import Any
 
 import matplotlib
@@ -28,6 +29,7 @@ class FullEpisodeValidationResult:
     valid_frame_count: int
     rmse: float
     mae: float
+    inference_fps: float
     visualization_path: str | None
 
 
@@ -75,6 +77,76 @@ def _reshape_pose_for_plotting(frame: np.ndarray, target_mode: str) -> np.ndarra
             f"Received target_mode={target_mode!r}."
         )
     return frame.reshape(-1, 3)
+
+
+def save_joint_angle_gif(
+    *,
+    predictions: np.ndarray,
+    targets: np.ndarray,
+    valid_mask: np.ndarray,
+    output_path: str,
+) -> None:
+    """Save a qualitative GIF of joint-angle trajectories over time.
+
+    This is used for ``target_representation="joint_angles"`` where 3D skeleton
+    replay is not available without an inverse-kinematics reconstruction step.
+    """
+
+    valid_indices = np.flatnonzero(valid_mask)
+    if len(valid_indices) == 0:
+        return
+
+    pred_valid = predictions[valid_mask]
+    target_valid = targets[valid_mask]
+    feature_count = pred_valid.shape[1]
+    x = np.arange(len(valid_indices))
+    labels = [
+        "Thumb MCP-PIP",
+        "Thumb PIP-DIP",
+        "Index MCP-PIP",
+        "Index PIP-DIP",
+        "Middle MCP-PIP",
+        "Middle PIP-DIP",
+        "Ring MCP-PIP",
+        "Ring PIP-DIP",
+        "Pinky MCP-PIP",
+        "Pinky PIP-DIP",
+    ][:feature_count]
+
+    figure, axes = plt.subplots(5, 2, figsize=(12, 10), facecolor="#020617", sharex=True)
+    axes = axes.reshape(-1)
+    lower = float(min(np.nanmin(target_valid), np.nanmin(pred_valid)))
+    upper = float(max(np.nanmax(target_valid), np.nanmax(pred_valid)))
+    if upper - lower < 1e-3:
+        lower -= 1.0
+        upper += 1.0
+
+    def style_axis(ax: Any, label: str) -> None:
+        ax.set_facecolor("#0f172a")
+        ax.grid(color="#334155", alpha=0.4, linewidth=0.6)
+        ax.tick_params(colors="#cbd5e1", labelsize=8)
+        ax.set_title(label, color="#e2e8f0", fontsize=10)
+        ax.set_ylim(lower, upper)
+
+    def update(frame_index: int) -> list[Any]:
+        for feature_index, ax in enumerate(axes):
+            ax.clear()
+            if feature_index >= feature_count:
+                ax.axis("off")
+                continue
+            style_axis(ax, labels[feature_index] if feature_index < len(labels) else f"Angle {feature_index + 1}")
+            ax.plot(x, target_valid[:, feature_index], color="#22c55e", linewidth=1.5, label="Ground Truth")
+            ax.plot(x, pred_valid[:, feature_index], color="#38bdf8", linewidth=1.5, label="Predicted")
+            ax.axvline(frame_index, color="#f59e0b", linewidth=1.0, alpha=0.8)
+            if feature_index % 2 == 0:
+                ax.set_ylabel("Radians", color="#cbd5e1", fontsize=8)
+        axes[0].legend(facecolor="#0f172a", edgecolor="#334155", labelcolor="#e2e8f0", fontsize=8)
+        figure.suptitle(f"Joint-angle validation frame {valid_indices[frame_index]}", color="#e2e8f0")
+        return []
+
+    ani = animation.FuncAnimation(figure, update, frames=len(valid_indices), interval=80, blit=False)
+    ani.save(output_path, writer=animation.PillowWriter(fps=12))
+    plt.close(figure)
 
 
 def _axis_limits(targets: np.ndarray, predictions: np.ndarray, target_mode: str) -> tuple[float, float]:
@@ -199,6 +271,7 @@ def run_full_episode_validation(
 
     results: list[FullEpisodeValidationResult] = []
     for episode_number, episode in enumerate(selected_episodes, start=1):
+        inference_start = time.perf_counter()
         predictions, targets, valid_mask = predict_full_episode(
             model=model,
             episode=episode,
@@ -206,6 +279,7 @@ def run_full_episode_validation(
             device=device,
             reset_model_state=reset_model_state,
         )
+        inference_seconds = time.perf_counter() - inference_start
         metric_predictions = predictions
         metric_targets = targets
         if normalization_stats is not None and normalization_stats.has_target_stats():
@@ -224,17 +298,28 @@ def run_full_episode_validation(
         target_valid = metric_targets[valid_mask]
         rmse = float(np.sqrt(mean_squared_error(target_valid, pred_valid)))
         mae = float(mean_absolute_error(target_valid, pred_valid))
+        inference_fps = 0.0 if inference_seconds <= 0.0 else float(valid_mask.sum()) / inference_seconds
 
         visualization_path = None
-        if save_visualizations and episode.target_mode == "xyz" and episode.target_representation == "points":
+        if save_visualizations:
             visualization_path = os.path.join(epoch_dir, f"episode_{episode_number:02d}.gif")
-            save_episode_gif(
-                predictions=metric_predictions,
-                targets=metric_targets,
-                valid_mask=valid_mask,
-                output_path=visualization_path,
-                target_mode=episode.target_mode,
-            )
+            if episode.target_mode == "xyz" and episode.target_representation == "points":
+                save_episode_gif(
+                    predictions=metric_predictions,
+                    targets=metric_targets,
+                    valid_mask=valid_mask,
+                    output_path=visualization_path,
+                    target_mode=episode.target_mode,
+                )
+            elif episode.target_representation == "joint_angles":
+                save_joint_angle_gif(
+                    predictions=metric_predictions,
+                    targets=metric_targets,
+                    valid_mask=valid_mask,
+                    output_path=visualization_path,
+                )
+            else:
+                visualization_path = None
 
         results.append(
             FullEpisodeValidationResult(
@@ -242,6 +327,7 @@ def run_full_episode_validation(
                 valid_frame_count=int(valid_mask.sum()),
                 rmse=rmse,
                 mae=mae,
+                inference_fps=inference_fps,
                 visualization_path=visualization_path,
             )
         )

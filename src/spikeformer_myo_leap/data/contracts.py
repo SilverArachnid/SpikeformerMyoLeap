@@ -26,3 +26,4 @@ class CollectionSettings:
     episode_duration: float = 5.0
     episodes_per_session: int = 20
     save_dir: str = "datasets"
+    recording_mode: str = "episodic"
