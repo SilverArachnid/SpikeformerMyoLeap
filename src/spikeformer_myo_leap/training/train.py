@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import asdict
 import json
 import os
+import sys
 import time
 from typing import Any
 
@@ -110,6 +111,7 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
     full_episode_history: list[dict[str, Any]] = []
     best_checkpoint = os.path.join(run_output_dir, f"{config.model_name}_best.pt")
     last_checkpoint = os.path.join(run_output_dir, f"{config.model_name}_last.pt")
+    disable_progress = not sys.stderr.isatty()
     print(f"Saving run artifacts under {run_output_dir}")
     print(
         f"Training {config.model_name} on {device} "
@@ -125,6 +127,7 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
             train_loader,
             desc=f"Epoch {epoch_index + 1}/{config.num_epochs} [train]",
             leave=False,
+            disable=disable_progress,
         )
         for emg_batch, pose_batch in train_progress:
             reset_model_state(model)
@@ -148,6 +151,7 @@ def train_model(config: TrainingConfig) -> dict[str, Any]:
             val_loader,
             desc=f"Epoch {epoch_index + 1}/{config.num_epochs} [val]",
             leave=False,
+            disable=disable_progress,
         )
         with torch.no_grad():
             for emg_batch, pose_batch in val_progress:

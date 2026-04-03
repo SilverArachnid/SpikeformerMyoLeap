@@ -48,6 +48,36 @@ The registry is append-only JSONL so interrupted runs are still visible.
 4. Run the phase-2 model family scripts.
 5. Select top configurations per family for later exploit/final comparison runs.
 
+## Current status
+
+### Phase 1 representation sweep
+
+Completed with Transformer at window size `64`.
+
+Main outcome:
+
+- `points_xyz` with palm-frame normalization clearly outperformed `points_xyz`
+  with wrist-relative coordinates only.
+
+Observed metrics:
+
+- wrist-relative points:
+  - `best_val_loss = 0.3775`
+  - full-episode `rmse = 4.9601`
+  - full-episode `mae = 3.4130`
+- palm-frame points:
+  - `best_val_loss = 0.2632`
+  - full-episode `rmse = 4.1227`
+  - full-episode `mae = 2.3522`
+
+Interpretation:
+
+- palm-frame normalization should be the default coordinate-based representation
+  for phase 2.
+- `joint_angles` trained stably and is still worth keeping as a secondary
+  representation track, but its losses and RMSE/MAE are not directly comparable
+  to point-space metrics because the target space is different.
+
 ## Notes
 
 - The scripts intentionally favor clarity over automation complexity.
